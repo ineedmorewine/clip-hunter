@@ -10,8 +10,8 @@ from pathlib import Path
 from google import genai
 from google.genai import errors, types
 
-# Tried in order; the first one that answers wins for the rest of the run.
-DEFAULT_MODELS = "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash"
+# Model names change often, so by default we discover the newest Flash models at runtime.
+SKIP_WORDS = ("pro", "image", "tts", "live", "embedding", "audio", "thinking", "exp", "preview", "8b")
 MIN_GAP_SECONDS = 7.0  # keep well under free-tier requests-per-minute limits
 
 
@@ -21,8 +21,28 @@ class Gemini:
         if not key:
             raise RuntimeError("GEMINI_API_KEY secret is missing")
         self.client = genai.Client(api_key=key)
-        self.models = [m.strip() for m in (os.environ.get("GEMINI_MODELS") or DEFAULT_MODELS).split(",") if m.strip()]
+        configured = [m.strip() for m in (os.environ.get("GEMINI_MODELS") or "").split(",") if m.strip()]
+        self.models = configured or self._discover()
+        print("Gemini models (in order): " + ", ".join(self.models))
         self._last_call = 0.0
+
+    def _discover(self) -> list[str]:
+        """Newest stable Flash models first, full before lite."""
+        found = []
+        for m in self.client.models.list():
+            name = (m.name or "").removeprefix("models/")
+            actions = getattr(m, "supported_actions", None) or []
+            if "flash" not in name or (actions and "generateContent" not in actions):
+                continue
+            if any(w in name.replace("flash", "") for w in SKIP_WORDS):
+                continue
+            version = tuple(int(x) for x in re.findall(r"\d+", name.split("flash")[0]))
+            found.append((version, "lite" not in name, "latest" not in name, name))
+        found.sort(reverse=True)
+        names = [n for *_, n in found]
+        if not names:
+            raise RuntimeError("no Gemini Flash model available for this API key")
+        return names[:4]
 
     def upload(self, path: Path, mime: str):
         f = self.client.files.upload(file=str(path), config={"mime_type": mime})
