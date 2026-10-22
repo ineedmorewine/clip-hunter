@@ -18,10 +18,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install tools
+      - name: Install ffmpeg (static build)
+        timeout-minutes: 5
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          pip install -q curl_cffi "yt-dlp[default,curl-cffi]"
+          curl -sSL -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          mkdir -p "$HOME/ffmpeg" && tar -xf ffmpeg.tar.xz -C "$HOME/ffmpeg" --strip-components=1
+          echo "$HOME/ffmpeg" >> "$GITHUB_PATH"
+
+      - name: Install Python packages
+        timeout-minutes: 5
+        run: pip install -q curl_cffi "yt-dlp[default,curl-cffi]"
 
       - name: Probe Kick VOD
         env:
