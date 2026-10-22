@@ -23,14 +23,15 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from gemini_client import Gemini
+from gemini_client import Gemini, QuotaExhausted
 from kick_hls import download_range, list_renditions, list_segments
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = Path("work")
 OUT = Path("output")
+CACHE = Path("cache")  # persisted between runs by actions/cache, keyed by VOD
 
-CHUNK_SECONDS = 20 * 60
+CHUNK_SECONDS = 40 * 60  # fewer, longer requests stay inside free-tier daily quotas
 CHUNK_OVERLAP = 60
 MIN_CLIP, MAX_CLIP = 10.0, 120.0
 VERIFY_PAD = 20.0  # seconds of context around a candidate for pass 2
@@ -166,26 +167,32 @@ def clamp(c: Candidate, duration: float) -> Candidate:
 
 # ---------- pipeline steps ----------
 
-def find_candidates(gem: Gemini, audio: Path, levels: list[float], duration: float) -> list[Candidate]:
+def find_candidates(gem: Gemini, audio: Path, levels: list[float], duration: float) -> tuple[list[Candidate], bool]:
     template = (ROOT / "prompts" / "find_moments.md").read_text(encoding="utf-8")
     cands: list[Candidate] = []
+    complete = True
     starts = list(range(0, max(1, int(duration)), CHUNK_SECONDS - CHUNK_OVERLAP))
     for n, offset in enumerate(starts, 1):
         length = min(CHUNK_SECONDS, duration - offset)
         if length < 30:
             continue
-        chunk = WORK / f"chunk_{n:02d}.mp3"
-        run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(offset), "-i", str(audio),
-             "-t", str(length), "-ac", "1", "-ar", "16000", "-b:a", "32k", str(chunk)])
-        hints = loud_spikes(levels, offset, int(offset + length))
-        prompt = template.replace("{loud_hints}", ", ".join(fmt_ts(h)[2:] for h in hints) or "yok")
+        cache_file = CACHE / f"p1_{int(offset)}_{int(length)}.json"
         print(f"Pass 1 · chunk {n}/{len(starts)} ({fmt_ts(offset)} – {fmt_ts(offset + length)})")
-        f = gem.upload(chunk, "audio/mpeg")
-        try:
-            result: Moments = gem.ask([f, prompt], Moments)
-        finally:
-            gem.delete(f)
-        for m in result.moments:
+        if cache_file.exists():
+            moments = [Moment(**m) for m in json.loads(cache_file.read_text(encoding="utf-8"))]
+            print("   (from cache)")
+        else:
+            try:
+                moments = _ask_chunk(gem, template, audio, levels, n, offset, length)
+            except QuotaExhausted:
+                print("   ! Gemini daily quota is used up; remaining chunks will be done on the next run")
+                return cands, False
+            except Exception as exc:
+                print(f"   ! chunk skipped: {exc}")
+                complete = False
+                continue
+            cache_file.write_text(json.dumps([m.model_dump() for m in moments], ensure_ascii=False), encoding="utf-8")
+        for m in moments:
             try:
                 s, e = parse_ts(m.start) + offset, parse_ts(m.end) + offset
             except ValueError:
@@ -193,16 +200,38 @@ def find_candidates(gem: Gemini, audio: Path, levels: list[float], duration: flo
             if e <= s:
                 continue
             cands.append(Candidate(s, e, int(m.score), m.why, m.quote))
-            print(f"   + {fmt_ts(s)} ({m.score}/10) {m.why[:80]}")
-    return cands
+            print(f"   + {fmt_ts(s)} ({m.score}/10) {m.why[:90]}")
+    return cands, complete
 
 
-def verify(gem: Gemini, low_ts: Path, c: Candidate, duration: float) -> Candidate | None:
+def _ask_chunk(gem: Gemini, template: str, audio: Path, levels: list[float],
+               n: int, offset: float, length: float) -> list[Moment]:
+        chunk = WORK / f"chunk_{n:02d}.mp3"
+        run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(offset), "-i", str(audio),
+             "-t", str(length), "-ac", "1", "-ar", "16000", "-b:a", "32k", str(chunk)])
+        hints = loud_spikes(levels, int(offset), int(offset + length))
+        prompt = template.replace("{loud_hints}", ", ".join(fmt_ts(h)[2:] for h in hints) or "yok")
+        f = gem.upload(chunk, "audio/mpeg")
+        try:
+            result: Moments = gem.ask([f, prompt], Moments)
+        finally:
+            gem.delete(f)
+            chunk.unlink(missing_ok=True)
+        return result.moments
+
+
+def verify(gem: Gemini, v_segments, c: Candidate, duration: float) -> Candidate | None:
     template = (ROOT / "prompts" / "verify_moment.md").read_text(encoding="utf-8")
     w_start = max(0.0, c.start - VERIFY_PAD)
     w_end = min(duration, c.end + VERIFY_PAD)
+    cache_file = CACHE / f"p2_{int(c.start)}_{int(c.end)}.json"
+    if cache_file.exists():
+        v = Verdict(**json.loads(cache_file.read_text(encoding="utf-8")))
+        return _apply_verdict(v, c, w_start)
+    src = WORK / f"verify_{int(c.start)}.ts"
+    src_start = download_range(v_segments, w_start, w_end, src)
     clip = WORK / f"verify_{int(c.start)}.mp4"
-    run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(w_start), "-i", str(low_ts),
+    run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{w_start - src_start:.2f}", "-i", str(src),
          "-t", str(w_end - w_start), "-vf", "scale=-2:360,fps=2", "-c:v", "libx264", "-preset", "veryfast",
          "-crf", "32", "-ac", "1", "-c:a", "aac", "-b:a", "48k", str(clip)])
     prompt = (template.replace("{start}", fmt_ts(c.start - w_start)[2:])
@@ -213,6 +242,12 @@ def verify(gem: Gemini, low_ts: Path, c: Candidate, duration: float) -> Candidat
     finally:
         gem.delete(f)
         clip.unlink(missing_ok=True)
+        src.unlink(missing_ok=True)
+    cache_file.write_text(v.model_dump_json(), encoding="utf-8")
+    return _apply_verdict(v, c, w_start)
+
+
+def _apply_verdict(v: Verdict, c: Candidate, w_start: float) -> Candidate | None:
     if not v.keep:
         return None
     try:
@@ -251,8 +286,8 @@ def main() -> int:
     ap.add_argument("--min-score", type=int, default=6)
     args = ap.parse_args()
 
-    WORK.mkdir(exist_ok=True)
-    OUT.mkdir(exist_ok=True)
+    for d in (WORK, OUT, CACHE):
+        d.mkdir(exist_ok=True)
 
     title, renditions = list_renditions(args.vod_url)
     print("Renditions: " + ", ".join(f"{r.height}p/{r.tbr:.0f}k" for r in renditions))
@@ -263,7 +298,8 @@ def main() -> int:
     for r in known:
         if r.height and r.height <= 1080:
             high = r  # sorted ascending, so this ends on the best <=1080p
-    print(f"VOD: {title}\nAnalysis rendition: {low.height}p · Clip rendition: {high.height}p")
+    verify_rend = next((r for r in known if r.height >= 360), known[-1])
+    print(f"VOD: {title}\nAnalysis: {low.height}p · Check: {verify_rend.height}p · Clips: {high.height}p")
 
     low_segments = list_segments(low.url)
     duration = sum(s.duration for s in low_segments)
@@ -277,18 +313,25 @@ def main() -> int:
     levels = loudness_curve(audio)
 
     gem = Gemini()
-    cands = dedupe(find_candidates(gem, audio, levels, duration))
+    found, complete = find_candidates(gem, audio, levels, duration)
+    cands = dedupe(found)
     cands = [c for c in cands if c.score >= args.min_score - 1]
-    cands = sorted(cands, key=lambda c: c.score, reverse=True)[: max(args.max_clips * 2, 10)]
-    print(f"\nPass 2 · verifying {len(cands)} candidates")
+    cands = sorted(cands, key=lambda c: c.score, reverse=True)[: args.max_clips + 5]
+    print(f"\nPass 2 · checking {len(cands)} candidates by watching them")
 
+    v_segments = list_segments(verify_rend.url)
     final: list[Candidate] = []
+    can_verify = True
     for c in cands:
-        try:
-            v = verify(gem, low_ts, c, duration)
-        except Exception as exc:  # keep pass-1 result if verification is unavailable
-            print(f"   ! verify failed at {fmt_ts(c.start)}: {exc}")
-            v = c
+        v = c  # keep the pass-1 result if checking is unavailable
+        if can_verify:
+            try:
+                v = verify(gem, v_segments, c, duration)
+            except QuotaExhausted:
+                print("   ! Gemini daily quota is used up; remaining candidates kept unchecked")
+                can_verify = False
+            except Exception as exc:
+                print(f"   ! check failed at {fmt_ts(c.start)}: {exc}")
         if v and v.score >= args.min_score:
             final.append(v)
             print(f"   ✓ {fmt_ts(v.start)} ({v.score}/10)")
@@ -306,19 +349,23 @@ def main() -> int:
         rows.append({"no": i, "file": path.name, **asdict(c),
                      "start_ts": fmt_ts(c.start), "end_ts": fmt_ts(c.end)})
 
-    write_report(args.vod_url, title, rows)
+    write_report(args.vod_url, title, rows, complete)
     return 0
 
 
-def write_report(vod_url: str, title: str, rows: list[dict]) -> None:
+def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = True) -> None:
     lines = [f"# Klipler — {title or 'Kick yayını'}", "", f"Yayın: {vod_url}", "",
-             "| # | Dosya | Yayındaki yer | Süre | Puan | Neden |", "|---|---|---|---|---|---|"]
+             "| # | Dosya | Yayındaki yer | Süre | Puan | Kontrol | Neden |", "|---|---|---|---|---|---|---|"]
     for r in rows:
         dur = int(r["end"] - r["start"])
         why = r["why"].replace("|", "/").replace("\n", " ")
-        lines.append(f"| {r['no']} | {r['file']} | {r['start_ts']} – {r['end_ts']} | {dur} sn | {r['score']}/10 | {why} |")
+        lines.append(f"| {r['no']} | {r['file']} | {r['start_ts']} – {r['end_ts']} | {dur} sn | {r['score']}/10 | {'✓' if r['verified'] else '·'} | {why} |")
     if not rows:
         lines.append("\nBu yayında yeterince güçlü an bulunamadı.")
+    if not complete:
+        lines.append("\n⚠️ Gemini'nin günlük ücretsiz kotası dolduğu için yayının bir kısmı dinlenemedi. "
+                     "Yarın aynı linkle tekrar çalıştır; dinlenen kısımlar hatırlanır, sadece kalan kısım işlenir.")
+    lines.append("\n✓ = izlenerek kontrol edildi, · = sadece dinlendi")
     text = "\n".join(lines) + "\n"
     (OUT / "klipler.md").write_text(text, encoding="utf-8")
     (OUT / "klipler.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")

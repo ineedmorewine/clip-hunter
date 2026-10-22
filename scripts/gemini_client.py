@@ -70,7 +70,7 @@ class Gemini:
         )
         last_error: Exception | None = None
         for model in list(self.models):
-            for attempt in range(5):
+            for attempt in range(4):
                 wait = MIN_GAP_SECONDS - (time.time() - self._last_call)
                 if wait > 0:
                     time.sleep(wait)
@@ -88,22 +88,31 @@ class Gemini:
                     if code == 429:
                         delay = _retry_delay(str(exc)) or 20 * (attempt + 1)
                         if "PerDay" in str(exc) or delay > 300:
-                            print(f"  {model}: daily quota exhausted, trying next model")
+                            print(f"  {model}: daily quota exhausted for today")
+                            self.models = [m for m in self.models if m != model]
                             break
                         print(f"  {model}: rate limited, waiting {delay:.0f}s")
                         time.sleep(delay)
                         continue
                     if code in (400, 403, 404):
-                        print(f"  {model}: not usable ({code}), trying next model")
+                        print(f"  {model}: not usable ({code})")
+                        self.models = [m for m in self.models if m != model]
                         break
                     raise
                 except errors.ServerError as exc:
                     last_error = exc
-                    time.sleep(15 * (attempt + 1))
+                    print(f"  {model}: busy ({getattr(exc, 'code', '?')}), retrying")
+                    time.sleep(30 * (attempt + 1))
                 except RuntimeError as exc:
                     last_error = exc
                     time.sleep(5)
+        if not self.models:
+            raise QuotaExhausted("every Gemini model is out of quota for today")
         raise RuntimeError(f"all Gemini models failed: {last_error}")
+
+
+class QuotaExhausted(RuntimeError):
+    """Raised when no model has quota left; callers should stop asking."""
 
 
 def _retry_delay(message: str) -> float | None:
