@@ -21,7 +21,7 @@ class Gemini:
         if not key:
             raise RuntimeError("GEMINI_API_KEY secret is missing")
         self.client = genai.Client(api_key=key)
-        self.models = [m.strip() for m in os.environ.get("GEMINI_MODELS", DEFAULT_MODELS).split(",") if m.strip()]
+        self.models = [m.strip() for m in (os.environ.get("GEMINI_MODELS") or DEFAULT_MODELS).split(",") if m.strip()]
         self._last_call = 0.0
 
     def upload(self, path: Path, mime: str):

@@ -255,8 +255,12 @@ def main() -> int:
     OUT.mkdir(exist_ok=True)
 
     title, renditions = list_renditions(args.vod_url)
-    low, high = renditions[0], renditions[-1]
-    for r in renditions:
+    print("Renditions: " + ", ".join(f"{r.height}p/{r.tbr:.0f}k" for r in renditions))
+    # Unknown-height entries sort first but may be the full-quality source; pick by bitrate instead.
+    known = [r for r in renditions if r.height] or renditions
+    low = min(renditions, key=lambda r: r.tbr or 1e9)
+    high = known[-1]
+    for r in known:
         if r.height and r.height <= 1080:
             high = r  # sorted ascending, so this ends on the best <=1080p
     print(f"VOD: {title}\nAnalysis rendition: {low.height}p · Clip rendition: {high.height}p")
