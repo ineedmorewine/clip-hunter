@@ -360,7 +360,7 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
         dur = int(r["end"] - r["start"])
         why = r["why"].replace("|", "/").replace("\n", " ")
         lines.append(f"| {r['no']} | {r['file']} | {r['start_ts']} – {r['end_ts']} | {dur} sn | {r['score']}/10 | {'✓' if r['verified'] else '·'} | {why} |")
-    if not rows:
+    if not rows and complete:
         lines.append("\nBu yayında yeterince güçlü an bulunamadı.")
     if not complete:
         lines.append("\n⚠️ Gemini'nin günlük ücretsiz kotası dolduğu için yayının bir kısmı dinlenemedi. "
