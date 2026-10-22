@@ -1,0 +1,66 @@
+name: "Klip bul"
+
+on:
+  workflow_dispatch:
+    inputs:
+      vod_url:
+        description: "Kick yayın linki (kick.com/lunverra/videos/...)"
+        required: true
+      max_clips:
+        description: "En fazla kaç klip"
+        default: "15"
+      min_score:
+        description: "En düşük puan (1-10)"
+        default: "6"
+
+concurrency:
+  group: clip-hunter
+  cancel-in-progress: false
+
+jobs:
+  hunt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg (static build)
+        timeout-minutes: 5
+        run: |
+          curl -sSL -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          mkdir -p "$HOME/ffmpeg" && tar -xf ffmpeg.tar.xz -C "$HOME/ffmpeg" --strip-components=1
+          echo "$HOME/ffmpeg" >> "$GITHUB_PATH"
+
+      - name: Install Python packages
+        timeout-minutes: 5
+        run: pip install -q -r requirements.txt
+
+      - name: Find and render clips
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
+          VOD_URL: ${{ inputs.vod_url }}
+          MAX_CLIPS: ${{ inputs.max_clips }}
+          MIN_SCORE: ${{ inputs.min_score }}
+        run: |
+          set -o pipefail
+          python -u scripts/clip_hunter.py "$VOD_URL" --max-clips "$MAX_CLIPS" --min-score "$MIN_SCORE" 2>&1 | tee run.log
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f output/klipler.md ]; then cat output/klipler.md >> "$GITHUB_STEP_SUMMARY"; else echo "Çalışma tamamlanamadı, logu kontrol et." >> "$GITHUB_STEP_SUMMARY"; fi
+          python scripts/annotate.py
+
+      - name: Upload clips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: klipler
+          path: output/
+          retention-days: 14
+          if-no-files-found: warn
