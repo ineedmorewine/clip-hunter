@@ -1,0 +1,39 @@
+name: "Test: Kick indirme"
+
+on:
+  workflow_dispatch:
+    inputs:
+      vod_url:
+        description: "Kick yayın linki (kick.com/lunverra/videos/...)"
+        required: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q curl_cffi "yt-dlp[default,curl-cffi]"
+
+      - name: Probe Kick VOD
+        env:
+          VOD_URL: ${{ inputs.vod_url }}
+        run: |
+          set -o pipefail
+          python scripts/kick_probe.py "$VOD_URL" | tee probe_report.txt
+
+      - name: Write summary
+        if: always()
+        run: |
+          echo '### Kick indirme testi' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat probe_report.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
