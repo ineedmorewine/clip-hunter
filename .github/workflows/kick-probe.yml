@@ -43,3 +43,5 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat probe_report.txt >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Also expose the report as an annotation so it is readable via the REST API.
+          python -c "import sys;t=open('probe_report.txt').read()[-3500:] if __import__('os').path.exists('probe_report.txt') else 'no report';print('::notice title=probe::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
