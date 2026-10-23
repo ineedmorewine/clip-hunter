@@ -12,10 +12,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q -r requirements.txt
-      - name: List channel
+      - name: Inspect channel items
         run: |
-          rm -rf state
-          python scripts/find_new_vods.py lunverra > out.txt 2>&1 || true
-          echo '{"since":"2000-01-01","done":[]}' > state/processed.json 2>/dev/null || (mkdir -p state && echo '{"since":"2000-01-01","done":[]}' > state/processed.json)
-          python scripts/find_new_vods.py lunverra --limit 5 >> out.txt 2>&1 || true
+          python - > out.txt 2>&1 <<'PY' || true
+          import json, re, subprocess
+          from curl_cffi import requests as r
+          d = r.get("https://kick.com/api/v2/channels/lunverra/videos", impersonate="chrome", timeout=30).json()
+          items = d if isinstance(d, list) else d.get("data", [])
+          blob = json.dumps(items)
+          print("contains user uuid:", "01a14669-6a20-7ade-8534-b501abd73e43" in blob)
+          it = items[0]
+          print("top keys:", sorted(it.keys()))
+          print("video keys:", sorted((it.get("video") or {}).keys()))
+          for it in items[:8]:
+              v = it.get("video") or {}
+              print(it.get("id"), it.get("slug"), it.get("created_at"), it.get("session_title"), "| video.uuid", v.get("uuid"), "| video.id", v.get("id"), "| dur", it.get("duration"))
+          u = (items[0].get("video") or {}).get("uuid")
+          p = subprocess.run(["yt-dlp","--impersonate","chrome","--print","%(title)s | %(duration)s",f"https://kick.com/lunverra/videos/{u}"],capture_output=True,text=True)
+          print("yt-dlp on video.uuid:", p.returncode, p.stdout.strip(), p.stderr.strip()[-200:])
+          PY
           python -c "t=open('out.txt').read();print('::notice title=channel::'+t.replace('%','%25').replace('\n','%0A'))"
