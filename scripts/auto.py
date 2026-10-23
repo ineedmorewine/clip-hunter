@@ -103,7 +103,17 @@ def main() -> int:
     max_clips = int(os.environ.get("MAX_CLIPS") or 15)
     min_score = int(os.environ.get("MIN_SCORE") or 6)
 
-    if vod_url:
+    if vod_url.isdigit():
+        # A channel VOD id: test run on that VOD without touching the processed list.
+        match = next((v for v in channel_vods() if v["id"] == vod_url), None)
+        if not match:
+            raise SystemExit(f"VOD id {vod_url} not found on the channel")
+        day = match["created"][:10]
+        folder = OUTPUT / f"test_{day}_{slugify(match['title'])}"
+        process(match["source"], f"https://kick.com/{CHANNEL}/videos · {day}", f"{match['title']} ({day})",
+                folder, CACHE / f"test_{vod_url}", gem, max_clips, min_score)
+        summary.append((folder / "klipler.md").read_text(encoding="utf-8"))
+    elif vod_url:
         key = slugify(vod_url)[-40:]
         folder = OUTPUT / f"manuel_{key[-12:]}"
         complete = process(vod_url, vod_url, "", folder, CACHE / key, gem, max_clips, min_score)
