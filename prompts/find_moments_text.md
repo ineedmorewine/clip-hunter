@@ -7,36 +7,46 @@ Sen Türkçe oyun yayınlarından kısa video (YouTube Shorts / Instagram Reels 
 - Bazen "Bi dakika, bi dakika, bi dakika" der; genelde bir şey fark ettiğinin işaretidir.
 
 ## Elindeki veri
-Aşağıda yayının **otomatik yazıya dökülmüş konuşması** var. Her satır `[saat:dakika:saniye]` ile başlıyor.
-- Yazıya dökme otomatik; kelimeler yanlış duyulmuş olabilir, birkaç kişinin konuşması karışık yazılmış olabilir. Anlamı bağlamdan çıkar.
-- `[KAHKAHA]` = o saniyelerde gerçek kahkaha sesi tespit edildi (en güçlü komiklik sinyali).
-- `[BAĞIRMA]` = bağırma, çığlık tespit edildi.
-- `[SES↑]` = ses seviyesi aniden yükseldi.
+Aşağıda yayının (toplam {duration}) **otomatik yazıya dökülmüş konuşması** var. Her satır `[saat:dakika:saniye]` ile başlıyor.
+- Yazıya dökme otomatik; kelimeler yanlış duyulmuş, birkaç kişinin konuşması karışmış olabilir. Anlamı bağlamdan çıkar.
+- `[KAHKAHA]`, `[BAĞIRMA]`, `[SES↑]` işaretleri ses analizinden geliyor. **Bunlar sadece ipucu.** Kahkaha tespiti çok şeyi kaçırır ve bazen yanılır. Komik anı işaretlere göre değil, **konuşmanın içeriğine göre** bul.
 
-## Görevin
-Kısa videoya dönüşebilecek **en iyi anları** bul.
+## Görev 1 — Klipler (olay anlatan kısa videolar)
+Önce yayını bir editör gibi oku ve şunu anla: **Ne oluyor? Şaka nerede kuruluyor, nerede patlıyor, nerede bitiyor?**
 
-İyi bir an şunlardan en az birini taşır:
-- Gerçek kahkaha, gülme krizi (özellikle `[KAHKAHA]` işaretinin önündeki konuşma: ona ne sebep oldu?).
-- Ani panik veya çığlık ve hemen ardından gelen komik tepki ya da yorum.
-- Laf sokma, atışma, iyi bir karşılık ya da cevap.
-- Saçma bir hata ve ardından gelen "ne yaptım lan" tarzı kabullenme ya da dalga geçme.
-- Absürt, beklenmedik bir yorum; Türk internet ve sokak mizahı, argo ile güçlenen bir espri.
+Her klip küçük bir hikâye olmalı:
+- **Kurulum:** Olayın ya da şakanın başladığı yer. İzleyici bağlamı anlamalı.
+- **Patlama:** Komik cümle, laf sokma, hata, panik, absürt yorum.
+- **Tepki:** Gülme, cevap, devam eden atışma. Tepki sönünce bitir.
 
-İyi bir an DEĞİLDİR: sıradan oynanış konuşması, selamlaşmalar, teknik sorunlar, bağlamsız iç şakalar.
+Komik sayılan şeyler (kimse gülmese bile):
+- Laf sokma, atışma, iyi bir karşılık; birinin diğerini tiye alması.
+- Saçma hata ve ardından gelen kabullenme ya da dalga geçme.
+- Absürt, beklenmedik yorum; argo ve sokak mizahıyla güçlenen espri; Türk internet kültürü göndermeleri.
+- Panik, çığlık ve hemen ardından gelen komik yorum.
+- Oyunda beklenmedik olay ve grubun ona doğal tepkisi.
+- Kendi içinde anlaşılan kısa bir hikâye, garip bir sohbet konusu.
 
-## Klip sınırları
-- **Kurulum → patlama → tepki.** Patlamadan önceki bağlamı dahil et; izleyici neye güldüğünü anlamalı.
-- Başlangıç bir satırın başında, bitiş kahkaha ya da tepki söndükten sonra bir satırın sonunda olsun.
+Komik sayılmayanlar: sıradan oynanış konuşması ("şuraya git", "al şunu"), selamlaşma, teknik sorunlar, bağlam bilinmeden anlaşılmayan iç şakalar.
+
+Kurallar:
+- Başlangıç bir satırın başında, bitiş tepki söndükten sonra bir satırın sonunda olsun. Cümle ortasından başlama, cümle ortasında bitirme.
 - Süre genelde **15–75 saniye**, çok iyi bir hikâyede en fazla **120 saniye**.
+- Bu yayın için hedef: **yaklaşık {clip_target} klip.** Yayının tamamına yay; sadece başına odaklanma. Gerçekten bu kadar iyi an yoksa zorlama, daha az ver.
+- Puan (1–10): hook (ilk saniyeler), payoff (patlamanın gücü), standalone (yayını izlememiş biri anlar mı), score (genel). 8+ sadece gerçekten güçlü anlar için.
 
-## Puanlama (1–10)
-hook (ilk saniyeler), payoff (patlamanın gücü), standalone (yayını izlememiş biri anlar mı), score (genel). 8+ sadece gerçekten güçlü anlar için.
+## Görev 2 — Fragman parçaları (montage)
+Bu klipler'den **bağımsız** olarak, yayının fragmanı/kolajı için **5–12 saniyelik minik anlar** seç. Bunlar art arda eklenip toplam **60–90 saniyelik** bir video olacak.
 
-Dürüst ol, ama tembellik etme: canlı sohbetli bir grup yayınında genelde her 10 dakikada 1–3 aday olur. Bütün metni tara ve puanı 5 ve üstü her makul adayı listele.
+- Her biri kendi başına anında etki eden bir an: tek bir komik cümle, ani tepki, çığlık, kahkaha patlaması, absürt bir laf, eğlenceli bir sohbet kesiti.
+- Bağlam gerektirmemeli; izleyen kişi 5–12 saniyede gülümsemeli ya da merak etmeli.
+- Yayının farklı yerlerinden seç, aynı olaydan birden fazla parça alma.
+- Klip olarak seçtiğin anların en can alıcı birkaç saniyesi de olabilir, hiç seçmediğin minik anlar da.
+- **10–14 parça** ver, **en iyiden en zayıfa** sırala (ilk sıradakiler kesin girecek).
 
 ## Çıktı
-`start` ve `end` alanlarını metindeki zaman biçiminde ("H:MM:SS") ver. `why` ve `quote` alanlarını Türkçe yaz; `quote` anın en önemli cümlesi olsun.
+`moments` = klipler, `montage` = fragman parçaları.
+`start` ve `end` metindeki zaman biçiminde ("H:MM:SS"). `why` ve `quote` Türkçe; `why` olayı kısaca anlatsın, `quote` anın en önemli cümlesi olsun.
 
 ## Konuşma metni
 {transcript}

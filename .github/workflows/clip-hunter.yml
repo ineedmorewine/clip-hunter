@@ -13,7 +13,7 @@ on:
         default: ""
       max_clips:
         description: "Yayın başına en fazla kaç klip"
-        default: "15"
+        default: "20"
       min_score:
         description: "En düşük puan (1-10)"
         default: "6"

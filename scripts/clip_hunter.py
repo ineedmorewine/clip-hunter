@@ -52,6 +52,17 @@ class Moment(BaseModel):
     quote: str
 
 
+class Micro(BaseModel):
+    start: str
+    end: str
+    why: str
+
+
+class Analysis(BaseModel):
+    moments: list[Moment]
+    montage: list[Micro]
+
+
 class Moments(BaseModel):
     moments: list[Moment]
 
@@ -190,36 +201,50 @@ def annotated_transcript(lines: list[Line], laugh: list[float], shout: list[floa
     return "\n".join(out)
 
 
-def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels) -> list[Candidate]:
-    """One text-only Gemini request per (part of a) VOD; answers are cached."""
+def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
+                    duration: float) -> tuple[list[Candidate], list[Candidate]]:
+    """One text-only Gemini request per VOD: story clips + montage snippets. Cached."""
     if gem is None:
         raise RuntimeError("Gemini is not configured")
-    cache_file = CACHE / "text_moments.json"
+    cache_file = CACHE / "analysis_v2.json"
     if cache_file.exists():
-        moments = [Moment(**m) for m in json.loads(cache_file.read_text(encoding="utf-8"))]
-        print("AI moments: from cache")
+        analysis = Analysis(**json.loads(cache_file.read_text(encoding="utf-8")))
+        print("AI analysis: from cache")
     else:
+        hours = max(duration / 3600, 0.25)
         template = (ROOT / "prompts" / "find_moments_text.md").read_text(encoding="utf-8")
+        template = (template.replace("{clip_target}", f"{round(hours * 8)}–{round(hours * 10)}")
+                    .replace("{duration}", fmt_ts(duration)))
         text = annotated_transcript(lines, laugh, shout, levels)
-        parts, moments = [text], []
+        parts = [text]
         if len(text) > 300_000:  # very long VODs: two requests
             mid = text.rfind("\n", 0, len(text) // 2)
             parts = [text[:mid], text[mid:]]
+        analysis = Analysis(moments=[], montage=[])
         for part in parts:
             print(f"Asking Gemini about {len(part) // 1000}k characters of transcript")
-            result: Moments = gem.ask([template.replace("{transcript}", part)], Moments)
-            moments += result.moments
-        cache_file.write_text(json.dumps([m.model_dump() for m in moments], ensure_ascii=False), encoding="utf-8")
-    cands = []
-    for m in moments:
-        try:
-            s, e = parse_ts(m.start), parse_ts(m.end)
-        except ValueError:
-            continue
-        if e > s:
-            cands.append(Candidate(s, e, int(m.score), m.why, m.quote))
-            print(f"   + {fmt_ts(s)} ({m.score}/10) {m.why[:90]}")
-    return cands
+            result: Analysis = gem.ask([template.replace("{transcript}", part)], Analysis)
+            analysis.moments += result.moments
+            analysis.montage += result.montage
+        cache_file.write_text(analysis.model_dump_json(), encoding="utf-8")
+
+    def to_cands(items, scored: bool) -> list[Candidate]:
+        out = []
+        for m in items:
+            try:
+                s, e = parse_ts(m.start), parse_ts(m.end)
+            except ValueError:
+                continue
+            if e > s:
+                out.append(Candidate(s, e, int(m.score) if scored else 0, m.why,
+                                     getattr(m, "quote", "")))
+        return out
+
+    cands, micros = to_cands(analysis.moments, True), to_cands(analysis.montage, False)
+    for c in cands:
+        print(f"   + {fmt_ts(c.start)} ({c.score}/10) {c.why[:90]}")
+    print(f"   montage snippets: {len(micros)}")
+    return cands, micros
 
 
 def laughter_candidates(laugh: list[float], shout: list[float], top: int = 20) -> list[Candidate]:
@@ -245,6 +270,49 @@ def laughter_candidates(laugh: list[float], shout: list[float], top: int = 20) -
         cands.append(Candidate(max(0, b0 - 18), b1 + 3, score, f"Kahkaha/bağırma ({b1 - b0 + 1} sn)", ""))
     print(f"Laughter fallback: {len(cands)} candidates")
     return cands
+
+
+MONTAGE_MAX = 90.0
+MICRO_MIN, MICRO_MAX = 4.0, 13.0
+
+
+def pick_montage(micros: list[Candidate], duration: float) -> list[Candidate]:
+    """Keep the model's priority order until ~90 s, then play them chronologically."""
+    chosen, total = [], 0.0
+    for m in micros:
+        m.start, m.end = max(0.0, m.start - 0.3), min(duration, m.end + 0.5)
+        if m.end - m.start < MICRO_MIN:
+            m.end = min(duration, m.start + MICRO_MIN)
+        if m.end - m.start > MICRO_MAX:
+            m.end = m.start + MICRO_MAX
+        if any(overlap(m, k) > 0 for k in chosen):
+            continue
+        if total + (m.end - m.start) > MONTAGE_MAX:
+            continue
+        chosen.append(m)
+        total += m.end - m.start
+    return sorted(chosen, key=lambda m: m.start)
+
+
+def laughter_montage(laugh: list[float], shout: list[float]) -> list[Candidate]:
+    return [Candidate(max(0, c.end - 11), c.end, 0, c.why, "") for c in laughter_candidates(laugh, shout, 12)]
+
+
+def render_montage(segments, micros: list[Candidate]) -> Path | None:
+    if not micros:
+        return None
+    pieces = []
+    for i, m in enumerate(micros, 1):
+        print(f"Montage piece {i}/{len(micros)} at {fmt_ts(m.start)}")
+        pieces.append(render(segments, m, 100 + i, WORK / f"piece_{i:02d}.mp4", fade=True))
+    listing = WORK / "pieces.txt"
+    listing.write_text("".join(f"file '{p.resolve()}'\n" for p in pieces), encoding="utf-8")
+    out = OUT / "fragman.mp4"
+    run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+         "-c", "copy", "-movflags", "+faststart", str(out)])
+    for p in pieces:
+        p.unlink(missing_ok=True)
+    return out
 
 
 def snap(c: Candidate, lines: list[Line], duration: float) -> None:
@@ -365,10 +433,10 @@ def _apply_verdict(v: Verdict, c: Candidate, w_start: float) -> Candidate | None
     return Candidate(s, e, int(v.score), v.why or c.why, c.quote, verified=True)
 
 
-def render(segments, c: Candidate, index: int) -> Path:
+def render(segments, c: Candidate, index: int, out: Path | None = None, fade: bool = False) -> Path:
     src = WORK / f"src_{index:02d}.ts"
     file_start = download_range(segments, c.start - 2, c.end + 2, src)
-    out = OUT / "klipler" / f"{index:02d}_{fmt_ts(c.start).replace(':', '-')}.mp4"
+    out = out or OUT / "klipler" / f"{index:02d}_{fmt_ts(c.start).replace(':', '-')}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
     vf = (
         "[0:v]split=2[a][b];"
@@ -379,14 +447,17 @@ def render(segments, c: Candidate, index: int) -> Path:
     )
     run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{c.start - file_start:.2f}",
          "-i", str(src), "-t", f"{c.end - c.start:.2f}", "-filter_complex", vf,
-         "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+         "-map", "[v]", "-map", "0:a?",
+         *(["-af", f"afade=t=in:d=0.08,afade=t=out:st={max(0.0, c.end - c.start - 0.12):.2f}:d=0.12,"
+                   "aresample=48000"] if fade else ["-ar", "48000"]),
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
          "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)])
     src.unlink(missing_ok=True)
     return out
 
 
 def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
-            gem: Gemini, max_clips: int = 15, min_score: int = 6) -> bool:
+            gem: Gemini, max_clips: int = 20, min_score: int = 6) -> bool:
     """Find and render clips for one VOD. Returns False if the quota cut it short.
 
     `source` is either a Kick VOD page URL or an HLS master playlist URL.
@@ -426,14 +497,17 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     lines = transcribe(audio, CACHE / "transcript.json")
     laugh, shout = laughter_curve(audio, CACHE / "laughter.json", Path("models"))
 
+    micros: list[Candidate] = []
     try:
-        cands = text_candidates(gem, lines, laugh, shout, levels)
+        cands, micros = text_candidates(gem, lines, laugh, shout, levels, duration)
         source = "AI"
     except Exception as exc:  # quota, outage or a content block: fall back to laughter
         print(f"   ! Gemini unavailable ({str(exc)[:120]}); using laughter detection only")
         cands, source = [], "kahkaha"
     if not cands:
         cands, source = laughter_candidates(laugh, shout), "kahkaha"
+    if not micros:
+        micros = laughter_montage(laugh, shout)
     for c in cands:
         snap(c, lines, duration)
         c.verified = source == "AI"
@@ -449,15 +523,21 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
             path = render(high_segments, c, i)
             rows.append({"no": i, "file": path.name, **asdict(c),
                          "start_ts": fmt_ts(c.start), "end_ts": fmt_ts(c.end)})
+        montage = pick_montage(micros, duration)
+        try:
+            render_montage(high_segments, montage)
+        except Exception as exc:
+            print(f"   ! montage failed: {exc}")
+            montage = []
     audio.unlink(missing_ok=True)
-    write_report(link, title, rows, complete)
+    write_report(link, title, rows, complete, montage if complete else [])
     return complete
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("vod_url")
-    ap.add_argument("--max-clips", type=int, default=15)
+    ap.add_argument("--max-clips", type=int, default=20)
     ap.add_argument("--min-score", type=int, default=6)
     args = ap.parse_args()
     key = re.sub(r"[^a-z0-9]+", "-", args.vod_url.lower())[-60:]
@@ -467,7 +547,8 @@ def main() -> int:
     return 0
 
 
-def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = True) -> None:
+def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = True,
+                 montage: list[Candidate] | None = None) -> None:
     lines = [f"# Klipler — {title or 'Kick yayını'}", "", f"Yayın: {vod_url}", "",
              "| # | Dosya | Yayındaki yer | Süre | Puan | Seçen | Neden |", "|---|---|---|---|---|---|---|"]
     for r in rows:
@@ -479,6 +560,11 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
     if not complete:
         lines.append("\n⏳ Gemini'nin günlük ücretsiz kotası doldu. Yarın kaldığı yerden otomatik devam edecek; "
                      "dinlenen kısımlar hatırlanıyor.")
+    if montage:
+        total = sum(m.end - m.start for m in montage)
+        lines.append(f"\n## Fragman — `fragman.mp4` ({int(total)} sn, {len(montage)} parça)\n")
+        for m in montage:
+            lines.append(f"- {fmt_ts(m.start)} ({int(m.end - m.start)} sn) — {m.why}")
     if SKIPPED:
         lines.append("\n⚠️ Şu bölümler dinlenemedi: " + ", ".join(SKIPPED))
     lines.append("\nAI = Gemini konuşmayı okuyup seçti · kahkaha = Gemini'ye ulaşılamadı, kahkaha tespitiyle seçildi")

@@ -100,7 +100,7 @@ def main() -> int:
         gem = None
     summary: list[str] = []
     vod_url = (os.environ.get("VOD_URL") or "").strip()
-    max_clips = int(os.environ.get("MAX_CLIPS") or 15)
+    max_clips = int(os.environ.get("MAX_CLIPS") or 20)
     min_score = int(os.environ.get("MIN_SCORE") or 6)
 
     if vod_url.isdigit():
