@@ -7,6 +7,7 @@ access happens here in Python; ffmpeg only ever reads local files.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -51,6 +52,27 @@ def list_renditions(vod_url: str) -> tuple[str, list[Rendition]]:
         raise RuntimeError("no HLS renditions found for this VOD")
     renditions.sort(key=lambda r: (r.height, r.tbr))
     return info.get("title") or "", renditions
+
+
+def renditions_from_master(master_url: str) -> list[Rendition]:
+    """Parse an HLS master playlist (e.g. the `source` field of Kick's API)."""
+    text = _get(master_url, 60).decode("utf-8", "replace")
+    if "#EXT-X-STREAM-INF" not in text:
+        return [Rendition(master_url, 0, 0.0)]
+    lines = text.splitlines()
+    out: list[Rendition] = []
+    for i, line in enumerate(lines):
+        if not line.startswith("#EXT-X-STREAM-INF"):
+            continue
+        bw = re.search(r"BANDWIDTH=(\d+)", line)
+        res = re.search(r"RESOLUTION=\d+x(\d+)", line)
+        out.append(Rendition(
+            url=urljoin(master_url, lines[i + 1].strip()),
+            height=int(res.group(1)) if res else 0,
+            tbr=int(bw.group(1)) / 1000 if bw else 0.0,
+        ))
+    out.sort(key=lambda r: (r.height, r.tbr))
+    return out
 
 
 def _get(url: str, timeout: int = 120) -> bytes:

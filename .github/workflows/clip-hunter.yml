@@ -1,17 +1,26 @@
 name: "Klip bul"
 
 on:
+  # Gemini's free quota resets at midnight Pacific time (10:00 / 11:00 Türkiye).
+  schedule:
+    - cron: "20 8 * * *"
+    - cron: "20 16 * * *"
   workflow_dispatch:
     inputs:
       vod_url:
-        description: "Kick yayın linki (kick.com/lunverra/videos/...)"
-        required: true
+        description: "Boş bırak: kanaldaki yeni yayınları otomatik bul. Ya da tek bir Kick yayın linki yapıştır."
+        required: false
+        default: ""
       max_clips:
-        description: "En fazla kaç klip"
+        description: "Yayın başına en fazla kaç klip"
         default: "15"
       min_score:
         description: "En düşük puan (1-10)"
         default: "6"
+
+permissions:
+  contents: write
+  issues: write
 
 concurrency:
   group: clip-hunter
@@ -39,43 +48,47 @@ jobs:
         timeout-minutes: 5
         run: pip install -q -r requirements.txt
 
-      - name: Cache key for this VOD
-        id: key
-        env:
-          VOD_URL: ${{ inputs.vod_url }}
-        run: echo "vod=$(printf '%s' "$VOD_URL" | sha1sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
-
-      # Model answers are remembered per VOD, so a run stopped by the daily
-      # quota continues where it left off when started again with the same link.
+      # Model answers are remembered, so a run stopped by the daily quota
+      # continues where it left off on the next run.
       - name: Restore previous answers
         uses: actions/cache/restore@v4
         with:
           path: cache
-          key: answers-${{ steps.key.outputs.vod }}-${{ github.run_id }}
-          restore-keys: answers-${{ steps.key.outputs.vod }}-
+          key: answers-${{ github.run_id }}
+          restore-keys: answers-
 
       - name: Find and render clips
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VOD_URL: ${{ inputs.vod_url }}
           MAX_CLIPS: ${{ inputs.max_clips }}
           MIN_SCORE: ${{ inputs.min_score }}
         run: |
           set -o pipefail
-          python -u scripts/clip_hunter.py "$VOD_URL" --max-clips "$MAX_CLIPS" --min-score "$MIN_SCORE" 2>&1 | tee run.log
+          python -u scripts/auto.py 2>&1 | tee run.log
 
       - name: Save answers
         if: always()
         uses: actions/cache/save@v4
         with:
           path: cache
-          key: answers-${{ steps.key.outputs.vod }}-${{ github.run_id }}
+          key: answers-${{ github.run_id }}
+
+      - name: Remember processed VODs
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state && git commit -m "Update processed VODs" && git push
+          fi
 
       - name: Summary
         if: always()
         run: |
-          if [ -f output/klipler.md ]; then cat output/klipler.md >> "$GITHUB_STEP_SUMMARY"; else echo "Çalışma tamamlanamadı, logu kontrol et." >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f output/ozet.md ]; then cat output/ozet.md >> "$GITHUB_STEP_SUMMARY"; else echo "Çalışma tamamlanamadı, logu kontrol et." >> "$GITHUB_STEP_SUMMARY"; fi
           python scripts/annotate.py
 
       - name: Upload clips
@@ -85,4 +98,4 @@ jobs:
           name: klipler
           path: output/
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: ignore

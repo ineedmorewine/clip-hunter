@@ -24,7 +24,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from gemini_client import Gemini, QuotaExhausted
-from kick_hls import download_range, list_renditions, list_segments
+from kick_hls import download_range, list_renditions, list_segments, renditions_from_master
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = Path("work")
@@ -279,19 +279,23 @@ def render(segments, c: Candidate, index: int) -> Path:
     return out
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("vod_url")
-    ap.add_argument("--max-clips", type=int, default=15)
-    ap.add_argument("--min-score", type=int, default=6)
-    args = ap.parse_args()
+def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
+            gem: Gemini, max_clips: int = 15, min_score: int = 6) -> bool:
+    """Find and render clips for one VOD. Returns False if the quota cut it short.
 
+    `source` is either a Kick VOD page URL or an HLS master playlist URL.
+    """
+    global OUT, CACHE
+    OUT, CACHE = out_dir, cache_dir
     for d in (WORK, OUT, CACHE):
-        d.mkdir(exist_ok=True)
+        d.mkdir(parents=True, exist_ok=True)
 
-    title, renditions = list_renditions(args.vod_url)
+    if ".m3u8" in source:
+        renditions = renditions_from_master(source)
+    else:
+        title_from_page, renditions = list_renditions(source)
+        title = title or title_from_page
     print("Renditions: " + ", ".join(f"{r.height}p/{r.tbr:.0f}k" for r in renditions))
-    # Unknown-height entries sort first but may be the full-quality source; pick by bitrate instead.
     known = [r for r in renditions if r.height] or renditions
     low = min(renditions, key=lambda r: r.tbr or 1e9)
     high = known[-1]
@@ -310,18 +314,18 @@ def main() -> int:
     audio = WORK / "audio.m4a"
     run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(low_ts), "-vn", "-ac", "1",
          "-ar", "16000", "-c:a", "aac", "-b:a", "48k", str(audio)])
+    low_ts.unlink(missing_ok=True)
     levels = loudness_curve(audio)
 
-    gem = Gemini()
     found, complete = find_candidates(gem, audio, levels, duration)
     cands = dedupe(found)
-    cands = [c for c in cands if c.score >= args.min_score - 1]
-    cands = sorted(cands, key=lambda c: c.score, reverse=True)[: args.max_clips + 5]
+    cands = [c for c in cands if c.score >= min_score - 1]
+    cands = sorted(cands, key=lambda c: c.score, reverse=True)[: max_clips + 5]
     print(f"\nPass 2 · checking {len(cands)} candidates by watching them")
 
     v_segments = list_segments(verify_rend.url)
     final: list[Candidate] = []
-    can_verify = True
+    can_verify = complete
     for c in cands:
         v = c  # keep the pass-1 result if checking is unavailable
         if can_verify:
@@ -330,26 +334,41 @@ def main() -> int:
             except QuotaExhausted:
                 print("   ! Gemini daily quota is used up; remaining candidates kept unchecked")
                 can_verify = False
+                complete = False
             except Exception as exc:
                 print(f"   ! check failed at {fmt_ts(c.start)}: {exc}")
-        if v and v.score >= args.min_score:
+        if v and v.score >= min_score:
             final.append(v)
             print(f"   ✓ {fmt_ts(v.start)} ({v.score}/10)")
         else:
             print(f"   ✗ {fmt_ts(c.start)} dropped")
 
-    final = sorted(dedupe(final), key=lambda c: c.score, reverse=True)[: args.max_clips]
-    final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
-
-    high_segments = low_segments if high.url == low.url else list_segments(high.url)
     rows = []
-    for i, c in enumerate(final, 1):
-        print(f"Rendering clip {i}/{len(final)} at {fmt_ts(c.start)}")
-        path = render(high_segments, c, i)
-        rows.append({"no": i, "file": path.name, **asdict(c),
-                     "start_ts": fmt_ts(c.start), "end_ts": fmt_ts(c.end)})
+    if complete:
+        # Only render once everything is analysed, so each VOD is delivered exactly once.
+        final = sorted(dedupe(final), key=lambda c: c.score, reverse=True)[:max_clips]
+        final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
+        high_segments = list_segments(high.url)
+        for i, c in enumerate(final, 1):
+            print(f"Rendering clip {i}/{len(final)} at {fmt_ts(c.start)}")
+            path = render(high_segments, c, i)
+            rows.append({"no": i, "file": path.name, **asdict(c),
+                         "start_ts": fmt_ts(c.start), "end_ts": fmt_ts(c.end)})
+    audio.unlink(missing_ok=True)
+    write_report(link, title, rows, complete)
+    return complete
 
-    write_report(args.vod_url, title, rows, complete)
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("vod_url")
+    ap.add_argument("--max-clips", type=int, default=15)
+    ap.add_argument("--min-score", type=int, default=6)
+    args = ap.parse_args()
+    key = re.sub(r"[^a-z0-9]+", "-", args.vod_url.lower())[-60:]
+    complete = process(args.vod_url, args.vod_url, "", OUT, CACHE / key, Gemini(),
+                       args.max_clips, args.min_score)
+    (OUT / "status.json").write_text(json.dumps({"complete": complete}), encoding="utf-8")
     return 0
 
 
@@ -363,10 +382,11 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
     if not rows and complete:
         lines.append("\nBu yayında yeterince güçlü an bulunamadı.")
     if not complete:
-        lines.append("\n⚠️ Gemini'nin günlük ücretsiz kotası dolduğu için yayının bir kısmı dinlenemedi. "
-                     "Yarın aynı linkle tekrar çalıştır; dinlenen kısımlar hatırlanır, sadece kalan kısım işlenir.")
+        lines.append("\n⏳ Gemini'nin günlük ücretsiz kotası doldu. Yarın kaldığı yerden otomatik devam edecek; "
+                     "dinlenen kısımlar hatırlanıyor.")
     lines.append("\n✓ = izlenerek kontrol edildi, · = sadece dinlendi")
     text = "\n".join(lines) + "\n"
+    OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "klipler.md").write_text(text, encoding="utf-8")
     (OUT / "klipler.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n" + text)

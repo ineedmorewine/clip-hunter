@@ -7,7 +7,7 @@ def escape(text: str) -> str:
     return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
 
 
-report = Path("output/klipler.md")
+report = Path("output/ozet.md")
 log = Path("run.log")
 if report.exists():
     body = report.read_text(encoding="utf-8")

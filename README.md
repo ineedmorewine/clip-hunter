@@ -4,12 +4,14 @@ Kick yayın linkinden komik anları bulup dikey (9:16) klip çıkaran kişisel a
 
 ## Nasıl kullanılır
 
-1. **Actions** sekmesi → soldan **Klip bul** → sağda **Run workflow**.
-2. `Kick yayın linki` kutusuna linki yapıştır (`https://kick.com/lunverra/videos/...`).
-3. İstersen klip sayısını ve en düşük puanı değiştir, **Run workflow**'a bas.
-4. Bitince çalışmanın sayfasını aç:
-   - Üstteki özet tabloda her klibin yayındaki yeri, süresi, puanı ve nedeni yazar.
-   - En altta **Artifacts → klipler** zip'ini indir. İçinde `klipler/` klasöründe mp4'ler ve `klipler.md` listesi var.
+**Hiçbir şey yapmana gerek yok.** Her gün iki kez (11:20 ve 19:20 civarı) araç Kick kanalındaki
+yeni yayınları kendisi bulur, klipleri çıkarır ve her yayın için bir **Issue** açar. GitHub sana
+bildirim/e-posta gönderir. Issue'da klip listesi ve indirme linki vardır.
+
+Gemini'nin günlük ücretsiz kotası biterse kaldığı yerden bir sonraki çalışmada devam eder.
+
+**Elle çalıştırmak istersen:** Actions → **Klip bul** → **Run workflow**.
+Link kutusunu boş bırakırsan yeni yayınları arar; bir Kick linki yapıştırırsan sadece onu işler.
 
 Dosya adları sıra numarası ve yayındaki başlangıç zamanıdır: `03_1-42-15.mp4` → yayının 1:42:15'i.
 
