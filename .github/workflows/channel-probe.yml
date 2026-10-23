@@ -1,0 +1,21 @@
+name: "Test: kanal listesi"
+
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r requirements.txt
+      - name: List channel
+        run: |
+          rm -rf state
+          python scripts/find_new_vods.py lunverra > out.txt 2>&1 || true
+          echo '{"since":"2000-01-01","done":[]}' > state/processed.json 2>/dev/null || (mkdir -p state && echo '{"since":"2000-01-01","done":[]}' > state/processed.json)
+          python scripts/find_new_vods.py lunverra --limit 5 >> out.txt 2>&1 || true
+          python -c "t=open('out.txt').read();print('::notice title=channel::'+t.replace('%','%25').replace('\n','%0A'))"
