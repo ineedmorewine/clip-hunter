@@ -49,8 +49,9 @@ def transcribe(audio: Path, cache_file: Path) -> list[Line]:
     print(f"Transcribing with Whisper ({WHISPER_MODEL}) …")
     model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                          cpu_threads=os.cpu_count() or 4)
+    # Pass decoded samples: faster-whisper's own decoder breaks on some PyAV versions.
     segments, info = model.transcribe(
-        str(audio), language="tr", beam_size=1, vad_filter=True,
+        load_pcm(audio), language="tr", beam_size=1, vad_filter=True,
         condition_on_previous_text=False,  # avoids repetition loops on long streams
         vad_parameters={"min_silence_duration_ms": 700},
     )
