@@ -73,10 +73,11 @@ def create_issue(title: str, body: str) -> None:
         return
     resp = cffi_requests.post(
         f"https://api.github.com/repos/{repo}/issues",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "User-Agent": "clip-hunter", "X-GitHub-Api-Version": "2022-11-28"},
         json={"title": title, "body": body}, timeout=30,
     )
-    print(f"issue: HTTP {resp.status_code}")
+    print(f"issue: HTTP {resp.status_code} {resp.text[:200] if resp.status_code >= 300 else ''}")
 
 
 def run_link() -> str:

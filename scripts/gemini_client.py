@@ -93,6 +93,9 @@ class Gemini:
                             reason = str(resp.candidates[0].finish_reason)
                         elif resp.prompt_feedback:
                             reason = str(resp.prompt_feedback.block_reason)
+                        if "PROHIBITED" in reason or "BLOCK" in reason.upper() and "SAFETY" not in reason.upper():
+                            # Google's fixed filter: retrying or switching models only wastes quota.
+                            raise ContentBlocked(reason)
                         print(f"  {model}: empty answer (reason: {reason or '?'}), retrying")
                         raise RuntimeError(f"empty answer ({reason}): {(resp.text or '')[:200]}")
                     # Remember the working model so later calls skip dead ones.
@@ -119,12 +122,18 @@ class Gemini:
                     last_error = exc
                     print(f"  {model}: busy ({getattr(exc, 'code', '?')}), retrying")
                     time.sleep(30 * (attempt + 1))
+                except ContentBlocked:
+                    raise
                 except RuntimeError as exc:
                     last_error = exc
                     time.sleep(5)
         if not self.models:
             raise QuotaExhausted("every Gemini model is out of quota for today")
         raise RuntimeError(f"all Gemini models failed: {last_error}")
+
+
+class ContentBlocked(RuntimeError):
+    """Google refused this input with a non-configurable filter."""
 
 
 class QuotaExhausted(RuntimeError):

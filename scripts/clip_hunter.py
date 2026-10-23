@@ -23,7 +23,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from gemini_client import Gemini, QuotaExhausted
+from gemini_client import ContentBlocked, Gemini, QuotaExhausted
 from kick_hls import download_range, list_renditions, list_segments, renditions_from_master
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -185,6 +185,19 @@ def find_candidates(gem: Gemini, audio: Path, levels: list[float], duration: flo
         else:
             try:
                 moments = _ask_chunk(gem, template, audio, levels, n, offset, length)
+            except ContentBlocked:
+                # Split so only the part Google refuses is lost, not the whole 40 minutes.
+                print("   ! Google blocked this part; retrying in 10-minute pieces")
+                moments = []
+                for k, sub in enumerate(range(0, int(length), 600)):
+                    sub_len = min(600, length - sub)
+                    try:
+                        for m in _ask_chunk(gem, template, audio, levels, n * 100 + k, offset + sub, sub_len):
+                            m.start = fmt_ts(parse_ts(m.start) + sub)
+                            m.end = fmt_ts(parse_ts(m.end) + sub)
+                            moments.append(m)
+                    except ContentBlocked:
+                        SKIPPED.append(f"{fmt_ts(offset + sub)} – {fmt_ts(offset + sub + sub_len)} (Google filtresi)")
             except QuotaExhausted:
                 print("   ! Gemini daily quota is used up; remaining chunks will be done on the next run")
                 return cands, False
@@ -334,6 +347,8 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
         if can_verify:
             try:
                 v = verify(gem, v_segments, c, duration)
+            except ContentBlocked:
+                print(f"   ! check blocked by Google at {fmt_ts(c.start)}; keeping it unchecked")
             except QuotaExhausted:
                 print("   ! Gemini daily quota is used up; remaining candidates kept unchecked")
                 can_verify = False
@@ -388,7 +403,7 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
         lines.append("\n⏳ Gemini'nin günlük ücretsiz kotası doldu. Yarın kaldığı yerden otomatik devam edecek; "
                      "dinlenen kısımlar hatırlanıyor.")
     if SKIPPED:
-        lines.append("\n⚠️ Şu bölümler teknik bir hata yüzünden dinlenemedi: " + ", ".join(SKIPPED))
+        lines.append("\n⚠️ Şu bölümler dinlenemedi: " + ", ".join(SKIPPED))
     lines.append("\n✓ = izlenerek kontrol edildi, · = sadece dinlendi")
     text = "\n".join(lines) + "\n"
     OUT.mkdir(parents=True, exist_ok=True)
