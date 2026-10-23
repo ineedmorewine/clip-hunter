@@ -24,6 +24,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from gemini_client import ContentBlocked, Gemini, QuotaExhausted
+from local_signals import Line, laughter_curve, transcribe
 from kick_hls import download_range, list_renditions, list_segments, renditions_from_master
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -165,6 +166,96 @@ def clamp(c: Candidate, duration: float) -> Candidate:
         c.end = c.start + MAX_CLIP
     return c
 
+
+
+# ---------- quota-free analysis ----------
+
+LAUGH_ON, SHOUT_ON = 0.35, 0.5
+
+
+def annotated_transcript(lines: list[Line], laugh: list[float], shout: list[float],
+                         levels: list[float]) -> str:
+    spikes = set(loud_spikes(levels, 0, len(levels)))
+    out = []
+    for ln in lines:
+        secs = range(int(ln.start), int(ln.end) + 2)
+        tags = []
+        if any(laugh[s] > LAUGH_ON for s in secs if s < len(laugh)):
+            tags.append("[KAHKAHA]")
+        if any(shout[s] > SHOUT_ON for s in secs if s < len(shout)):
+            tags.append("[BAĞIRMA]")
+        if any(s in spikes for s in secs):
+            tags.append("[SES↑]")
+        out.append(f"[{fmt_ts(ln.start)}] {ln.text} {' '.join(tags)}".rstrip())
+    return "\n".join(out)
+
+
+def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels) -> list[Candidate]:
+    """One text-only Gemini request per (part of a) VOD; answers are cached."""
+    if gem is None:
+        raise RuntimeError("Gemini is not configured")
+    cache_file = CACHE / "text_moments.json"
+    if cache_file.exists():
+        moments = [Moment(**m) for m in json.loads(cache_file.read_text(encoding="utf-8"))]
+        print("AI moments: from cache")
+    else:
+        template = (ROOT / "prompts" / "find_moments_text.md").read_text(encoding="utf-8")
+        text = annotated_transcript(lines, laugh, shout, levels)
+        parts, moments = [text], []
+        if len(text) > 300_000:  # very long VODs: two requests
+            mid = text.rfind("\n", 0, len(text) // 2)
+            parts = [text[:mid], text[mid:]]
+        for part in parts:
+            print(f"Asking Gemini about {len(part) // 1000}k characters of transcript")
+            result: Moments = gem.ask([template.replace("{transcript}", part)], Moments)
+            moments += result.moments
+        cache_file.write_text(json.dumps([m.model_dump() for m in moments], ensure_ascii=False), encoding="utf-8")
+    cands = []
+    for m in moments:
+        try:
+            s, e = parse_ts(m.start), parse_ts(m.end)
+        except ValueError:
+            continue
+        if e > s:
+            cands.append(Candidate(s, e, int(m.score), m.why, m.quote))
+            print(f"   + {fmt_ts(s)} ({m.score}/10) {m.why[:90]}")
+    return cands
+
+
+def laughter_candidates(laugh: list[float], shout: list[float], top: int = 20) -> list[Candidate]:
+    """Fallback without any AI: clip the context leading up to each laughter burst."""
+    bursts, cur = [], None
+    for sec, v in enumerate(laugh):
+        hot = v > LAUGH_ON or shout[sec] > SHOUT_ON
+        if hot:
+            if cur and sec - cur[1] <= 3:
+                cur[1] = sec
+            else:
+                cur = [sec, sec]
+                bursts.append(cur)
+    scored = []
+    for b0, b1 in bursts:
+        strength = sum(laugh[b0:b1 + 1]) + 0.5 * sum(shout[b0:b1 + 1])
+        if strength >= 1.5:
+            scored.append((strength, b0, b1))
+    scored.sort(reverse=True)
+    cands = []
+    for strength, b0, b1 in scored[:top]:
+        score = min(9, 5 + int(strength))
+        cands.append(Candidate(max(0, b0 - 18), b1 + 3, score, f"Kahkaha/bağırma ({b1 - b0 + 1} sn)", ""))
+    print(f"Laughter fallback: {len(cands)} candidates")
+    return cands
+
+
+def snap(c: Candidate, lines: list[Line], duration: float) -> None:
+    """Move boundaries to sentence edges so clips don't start or end mid-word."""
+    before = [ln.start for ln in lines if ln.start <= c.start + 0.5]
+    if before and c.start - before[-1] < 8:
+        c.start = before[-1]
+    after = [ln.end for ln in lines if ln.end >= c.end - 0.5]
+    if after and after[0] - c.end < 6:
+        c.end = after[0]
+    c.end = min(c.end, duration)
 
 # ---------- pipeline steps ----------
 
@@ -318,8 +409,7 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     for r in known:
         if r.height and r.height <= 1080:
             high = r  # sorted ascending, so this ends on the best <=1080p
-    verify_rend = next((r for r in known if r.height >= 360), known[-1])
-    print(f"VOD: {title}\nAnalysis: {low.height}p · Check: {verify_rend.height}p · Clips: {high.height}p")
+    print(f"VOD: {title}\nAnalysis: {low.height}p · Clips: {high.height}p")
 
     low_segments = list_segments(low.url)
     duration = sum(s.duration for s in low_segments)
@@ -333,38 +423,25 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     low_ts.unlink(missing_ok=True)
     levels = loudness_curve(audio)
 
-    found, complete = find_candidates(gem, audio, levels, duration)
-    cands = dedupe(found)
-    cands = [c for c in cands if c.score >= min_score - 1]
-    cands = sorted(cands, key=lambda c: c.score, reverse=True)[: max_clips + 5]
-    print(f"\nPass 2 · checking {len(cands)} candidates by watching them")
+    lines = transcribe(audio, CACHE / "transcript.json")
+    laugh, shout = laughter_curve(audio, CACHE / "laughter.json", Path("models"))
 
-    v_segments = list_segments(verify_rend.url)
-    final: list[Candidate] = []
-    can_verify = complete
+    try:
+        cands = text_candidates(gem, lines, laugh, shout, levels)
+        source = "AI"
+    except Exception as exc:  # quota, outage or a content block: fall back to laughter
+        print(f"   ! Gemini unavailable ({str(exc)[:120]}); using laughter detection only")
+        cands, source = [], "kahkaha"
+    if not cands:
+        cands, source = laughter_candidates(laugh, shout), "kahkaha"
     for c in cands:
-        v = c  # keep the pass-1 result if checking is unavailable
-        if can_verify:
-            try:
-                v = verify(gem, v_segments, c, duration)
-            except ContentBlocked:
-                print(f"   ! check blocked by Google at {fmt_ts(c.start)}; keeping it unchecked")
-            except QuotaExhausted:
-                print("   ! Gemini daily quota is used up; remaining candidates kept unchecked")
-                can_verify = False
-                complete = False
-            except Exception as exc:
-                print(f"   ! check failed at {fmt_ts(c.start)}: {exc}")
-        if v and v.score >= min_score:
-            final.append(v)
-            print(f"   ✓ {fmt_ts(v.start)} ({v.score}/10)")
-        else:
-            print(f"   ✗ {fmt_ts(c.start)} dropped")
-
+        snap(c, lines, duration)
+        c.verified = source == "AI"
+    final = [c for c in dedupe(cands) if c.score >= min_score]
+    complete = True
     rows = []
     if complete:
-        # Only render once everything is analysed, so each VOD is delivered exactly once.
-        final = sorted(dedupe(final), key=lambda c: c.score, reverse=True)[:max_clips]
+        final = sorted(final, key=lambda c: c.score, reverse=True)[:max_clips]
         final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
         high_segments = list_segments(high.url)
         for i, c in enumerate(final, 1):
@@ -392,11 +469,11 @@ def main() -> int:
 
 def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = True) -> None:
     lines = [f"# Klipler — {title or 'Kick yayını'}", "", f"Yayın: {vod_url}", "",
-             "| # | Dosya | Yayındaki yer | Süre | Puan | Kontrol | Neden |", "|---|---|---|---|---|---|---|"]
+             "| # | Dosya | Yayındaki yer | Süre | Puan | Seçen | Neden |", "|---|---|---|---|---|---|---|"]
     for r in rows:
         dur = int(r["end"] - r["start"])
         why = r["why"].replace("|", "/").replace("\n", " ")
-        lines.append(f"| {r['no']} | {r['file']} | {r['start_ts']} – {r['end_ts']} | {dur} sn | {r['score']}/10 | {'✓' if r['verified'] else '·'} | {why} |")
+        lines.append(f"| {r['no']} | {r['file']} | {r['start_ts']} – {r['end_ts']} | {dur} sn | {r['score']}/10 | {'AI' if r['verified'] else 'kahkaha'} | {why} |")
     if not rows and complete:
         lines.append("\nBu yayında yeterince güçlü an bulunamadı.")
     if not complete:
@@ -404,7 +481,7 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
                      "dinlenen kısımlar hatırlanıyor.")
     if SKIPPED:
         lines.append("\n⚠️ Şu bölümler dinlenemedi: " + ", ".join(SKIPPED))
-    lines.append("\n✓ = izlenerek kontrol edildi, · = sadece dinlendi")
+    lines.append("\nAI = Gemini konuşmayı okuyup seçti · kahkaha = Gemini'ye ulaşılamadı, kahkaha tespitiyle seçildi")
     text = "\n".join(lines) + "\n"
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "klipler.md").write_text(text, encoding="utf-8")

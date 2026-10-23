@@ -93,7 +93,11 @@ def deliver(folder: Path, title: str) -> None:
 
 
 def main() -> int:
-    gem = Gemini()
+    try:
+        gem = Gemini()
+    except Exception as exc:  # no key / API down: still deliver clips from laughter detection
+        print(f"Gemini not available: {exc}")
+        gem = None
     summary: list[str] = []
     vod_url = (os.environ.get("VOD_URL") or "").strip()
     max_clips = int(os.environ.get("MAX_CLIPS") or 15)

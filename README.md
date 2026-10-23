@@ -18,10 +18,11 @@ Dosya adları sıra numarası ve yayındaki başlangıç zamanıdır: `03_1-42-1
 ## Nasıl çalışır
 
 1. Yayının düşük kaliteli kopyası indirilir, sesi çıkarılır.
-2. Ses seviyesindeki ani yükselişler (kahkaha, bağırma) ipucu olarak işaretlenir.
-3. Gemini, yayını 20 dakikalık parçalar halinde **dinler** ve Türkçe mizaha göre aday anları seçer.
-4. Her aday için Gemini o bölümü **izler**, gerçekten iyi mi diye kontrol eder ve başlangıç/bitişi düzeltir.
-5. Seçilen anlar en yüksek kaliteden kesilir, bulanık arka planlı 1080×1920 klip yapılır.
+2. **Whisper** (açık kaynak, GitHub'ın kendi bilgisayarında) konuşmayı Türkçe yazıya döker. Kota yok.
+3. **YAMNet** (açık kaynak) her saniyede kahkaha ve bağırma olup olmadığını işaretler. Kota yok.
+4. İşaretli konuşma metni Gemini'ye **tek bir istekle** gönderilir; Türkçe mizaha göre anları seçer.
+   Gemini'ye ulaşılamazsa klipler kahkaha tespitiyle seçilir; araç yine de çalışır.
+5. Seçilen anlar cümle sınırlarına oturtulur, en yüksek kaliteden kesilir, bulanık arka planlı 1080×1920 klip yapılır.
 
 Altyazı ve kurgu eklenmez.
 

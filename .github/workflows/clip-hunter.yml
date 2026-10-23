@@ -29,7 +29,7 @@ concurrency:
 jobs:
   hunt:
     runs-on: ubuntu-24.04
-    timeout-minutes: 350
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +47,14 @@ jobs:
       - name: Install Python packages
         timeout-minutes: 5
         run: pip install -q -r requirements.txt
+
+      - name: Restore AI models (Whisper, YAMNet)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            models
+          key: local-models-v1
 
       # Model answers are remembered, so a run stopped by the daily quota
       # continues where it left off on the next run.
