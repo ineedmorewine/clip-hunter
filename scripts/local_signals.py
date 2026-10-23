@@ -78,33 +78,64 @@ def _yamnet_model(dest: Path) -> Path:
     raise RuntimeError("could not download the YAMNet model")
 
 
+def _labels(model: Path) -> list[str]:
+    """YAMNet's class names, packed inside the .tflite as metadata (a zip)."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(model) as zf:
+            name = next(n for n in zf.namelist() if n.endswith(".txt") or n.endswith(".csv"))
+            raw = zf.read(name).decode("utf-8").splitlines()
+            if name.endswith(".csv"):
+                return [row.split(",", 2)[-1].strip().strip('"') for row in raw[1:]]
+            return [r.strip() for r in raw]
+    except Exception:
+        pass
+    csv = model.with_name("yamnet_class_map.csv")
+    if not csv.exists():
+        subprocess.run(["curl", "-sSLf", "-o", str(csv),
+                        "https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv"],
+                       check=True)
+    rows = csv.read_text(encoding="utf-8").splitlines()[1:]
+    return [r.split(",", 2)[-1].strip().strip('"') for r in rows]
+
+
 def laughter_curve(audio: Path, cache_file: Path, model_dir: Path) -> tuple[list[float], list[float]]:
-    """Return (laugh, shout) probability per second."""
+    """Return (laugh, shout) probability per second. Never fatal: zeros on failure."""
     if cache_file.exists():
         data = json.loads(cache_file.read_text(encoding="utf-8"))
         print("Laughter: from cache")
         return data["laugh"], data["shout"]
-    import mediapipe as mp
-
-    model = _yamnet_model(model_dir / "yamnet.tflite")
-    options = mp.tasks.audio.AudioClassifierOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(model.resolve())),
-        max_results=-1, running_mode=mp.tasks.audio.RunningMode.AUDIO_CLIPS,
-    )
     pcm = load_pcm(audio)
     seconds = int(len(pcm) / 16000) + 1
     laugh, shout = [0.0] * seconds, [0.0] * seconds
-    block = 16000 * 600  # classify 10 minutes at a time to bound memory
-    with mp.tasks.audio.AudioClassifier.create_from_options(options) as clf:
-        for off in range(0, len(pcm), block):
-            data = mp.tasks.components.containers.AudioData.create_from_array(pcm[off:off + block], 16000)
-            for res in clf.classify(data):
-                sec = int(off / 16000 + res.timestamp_ms / 1000)
-                if sec >= seconds or not res.classifications:
-                    continue
-                cats = res.classifications[0].categories
-                laugh[sec] = max(laugh[sec], sum(c.score for c in cats if c.category_name in LAUGH_LABELS))
-                shout[sec] = max(shout[sec], sum(c.score for c in cats if c.category_name in SHOUT_LABELS))
+    try:
+        from ai_edge_litert.interpreter import Interpreter
+
+        model = _yamnet_model(model_dir / "yamnet.tflite")
+        labels = _labels(model)
+        laugh_idx = [i for i, n in enumerate(labels) if n in LAUGH_LABELS]
+        shout_idx = [i for i, n in enumerate(labels) if n in SHOUT_LABELS]
+        print(f"YAMNet: {len(labels)} classes, laugh={laugh_idx}, shout={shout_idx}")
+        interp = Interpreter(model_path=str(model))
+        inp = interp.get_input_details()[0]
+        win = int(inp["shape"][-1]) if int(inp["shape"][-1]) > 1 else 15600
+        if list(inp["shape"]) != [win] and list(inp["shape"]) != [1, win]:
+            interp.resize_tensor_input(inp["index"], [win])
+        interp.allocate_tensors()
+        inp = interp.get_input_details()[0]
+        out_index = interp.get_output_details()[0]["index"]
+        for sec in range(seconds):
+            frame = pcm[sec * 16000: sec * 16000 + win]
+            if len(frame) < win:
+                frame = np.pad(frame, (0, win - len(frame)))
+            interp.set_tensor(inp["index"], frame.reshape(inp["shape"]).astype(np.float32))
+            interp.invoke()
+            scores = interp.get_tensor(out_index).reshape(-1)
+            laugh[sec] = float(sum(scores[i] for i in laugh_idx))
+            shout[sec] = float(sum(scores[i] for i in shout_idx))
+    except Exception as exc:
+        print(f"   ! laughter detection unavailable: {exc}")
+        return laugh, shout
     cache_file.write_text(json.dumps({"laugh": laugh, "shout": shout}), encoding="utf-8")
     print(f"Laughter: {sum(1 for v in laugh if v > 0.3)} seconds with laughter")
     return laugh, shout

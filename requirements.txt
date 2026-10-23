@@ -3,5 +3,5 @@ yt-dlp[default,curl-cffi]
 google-genai>=1.0
 pydantic>=2
 faster-whisper>=1.1
-mediapipe>=0.10.14
+ai-edge-litert
 numpy
