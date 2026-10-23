@@ -67,6 +67,16 @@ class Gemini:
             response_mime_type="application/json",
             response_schema=schema,
             temperature=temperature,
+            # Streams are full of slang, swearing and dark jokes; don't let filters blank the answer.
+            safety_settings=[
+                types.SafetySetting(category=c, threshold=types.HarmBlockThreshold.BLOCK_NONE)
+                for c in (
+                    types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                )
+            ],
         )
         last_error: Exception | None = None
         for model in list(self.models):
@@ -78,7 +88,13 @@ class Gemini:
                 try:
                     resp = self.client.models.generate_content(model=model, contents=parts, config=config)
                     if resp.parsed is None:
-                        raise RuntimeError(f"empty/unparsable answer: {(resp.text or '')[:200]}")
+                        reason = ""
+                        if resp.candidates:
+                            reason = str(resp.candidates[0].finish_reason)
+                        elif resp.prompt_feedback:
+                            reason = str(resp.prompt_feedback.block_reason)
+                        print(f"  {model}: empty answer (reason: {reason or '?'}), retrying")
+                        raise RuntimeError(f"empty answer ({reason}): {(resp.text or '')[:200]}")
                     # Remember the working model so later calls skip dead ones.
                     self.models = [model] + [m for m in self.models if m != model]
                     return resp.parsed

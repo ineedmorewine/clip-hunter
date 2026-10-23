@@ -35,6 +35,7 @@ CHUNK_SECONDS = 40 * 60  # fewer, longer requests stay inside free-tier daily qu
 CHUNK_OVERLAP = 60
 MIN_CLIP, MAX_CLIP = 10.0, 120.0
 VERIFY_PAD = 20.0  # seconds of context around a candidate for pass 2
+SKIPPED: list[str] = []  # time ranges that could not be analysed in this run
 
 
 # ---------- schemas returned by the model ----------
@@ -188,8 +189,9 @@ def find_candidates(gem: Gemini, audio: Path, levels: list[float], duration: flo
                 print("   ! Gemini daily quota is used up; remaining chunks will be done on the next run")
                 return cands, False
             except Exception as exc:
+                # A non-quota failure must not block delivery forever; report the gap instead.
                 print(f"   ! chunk skipped: {exc}")
-                complete = False
+                SKIPPED.append(f"{fmt_ts(offset)} – {fmt_ts(offset + length)}")
                 continue
             cache_file.write_text(json.dumps([m.model_dump() for m in moments], ensure_ascii=False), encoding="utf-8")
         for m in moments:
@@ -287,6 +289,7 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     """
     global OUT, CACHE
     OUT, CACHE = out_dir, cache_dir
+    SKIPPED.clear()
     for d in (WORK, OUT, CACHE):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -384,6 +387,8 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
     if not complete:
         lines.append("\n⏳ Gemini'nin günlük ücretsiz kotası doldu. Yarın kaldığı yerden otomatik devam edecek; "
                      "dinlenen kısımlar hatırlanıyor.")
+    if SKIPPED:
+        lines.append("\n⚠️ Şu bölümler teknik bir hata yüzünden dinlenemedi: " + ", ".join(SKIPPED))
     lines.append("\n✓ = izlenerek kontrol edildi, · = sadece dinlendi")
     text = "\n".join(lines) + "\n"
     OUT.mkdir(parents=True, exist_ok=True)

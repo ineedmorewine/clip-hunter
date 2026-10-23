@@ -37,6 +37,7 @@ Sana yayının bir ses parçası veriliyor. Parçayı **baştan sona dinle** ve 
 - **score**: Genel klip değeri. 8+ sadece gerçekten güçlü anlar için.
 
 Dürüst ol: zayıf an bulursan düşük puan ver. Parçada iyi an yoksa boş liste dön.
+Ama tembellik etme: canlı sohbetli bir grup yayınında genelde her 10 dakikada 1–3 aday an olur. Parçanın tamamını tara ve bulduğun her makul adayı (puan 5 ve üstü) listele; eleme sonra yapılacak.
 
 ## Ek ipucu
 Ses seviyesinin aniden yükseldiği saniyeler (parçanın başına göre): {loud_hints}
