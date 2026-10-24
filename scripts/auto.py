@@ -18,6 +18,7 @@ from curl_cffi import requests as cffi_requests
 
 from clip_hunter import fmt_ts, process
 from gemini_client import Gemini
+from publish import publish
 
 CHANNEL = os.environ.get("KICK_CHANNEL") or "lunverra"
 STATE = Path("state/processed.json")
@@ -85,11 +86,17 @@ def run_link() -> str:
     return f"{server}/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}"
 
 
+def site_link() -> str:
+    owner, _, name = (os.environ.get("GITHUB_REPOSITORY") or "ineedmorewine/clip-hunter").partition("/")
+    return f"https://{owner}.github.io/{name}/"
+
+
 def deliver(folder: Path, title: str) -> None:
+    tag = publish(folder)
     report = (folder / "klipler.md").read_text(encoding="utf-8")
-    body = (f"{report}\n---\n**Klipleri indir:** {run_link()} → sayfanın en altında "
-            f"**Artifacts → klipler** (içinde `{folder.name}` klasörü). 14 gün saklanır.")
-    create_issue(f"🎬 Klipler: {title}", body)
+    where = (f"**İzle ve indir:** {site_link()}#{tag}" if tag else
+             f"**Klipleri indir:** {run_link()} → **Artifacts → klipler**")
+    create_issue(f"🎬 Klipler: {title}", f"{where}\n\n{report}")
 
 
 def main() -> int:
@@ -109,9 +116,10 @@ def main() -> int:
         if not match:
             raise SystemExit(f"VOD id {vod_url} not found on the channel")
         day = match["created"][:10]
-        folder = OUTPUT / f"test_{day}_{slugify(match['title'])}"
+        folder = OUTPUT / f"test_{day}_{slugify(match['title'])}_{vod_url}"
         process(match["source"], f"https://kick.com/{CHANNEL}/videos · {day}", f"{match['title']} ({day})",
                 folder, CACHE / f"test_{vod_url}", gem, max_clips, min_score)
+        publish(folder)
         summary.append((folder / "klipler.md").read_text(encoding="utf-8"))
     elif vod_url:
         key = slugify(vod_url)[-40:]
@@ -132,7 +140,7 @@ def main() -> int:
                 save_state(state)
                 continue
             day = v["created"][:10]
-            folder = OUTPUT / f"{day}_{slugify(v['title'])}"
+            folder = OUTPUT / f"{day}_{slugify(v['title'])}_{v['id']}"
             label = f"{v['title'] or 'Kick yayını'} ({day})"
             link = f"https://kick.com/{CHANNEL}/videos · {day} tarihli yayın"
             complete = process(v["source"], link, label, folder, CACHE / v["id"], gem,

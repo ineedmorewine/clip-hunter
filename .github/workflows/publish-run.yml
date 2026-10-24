@@ -1,0 +1,32 @@
+name: "Eski çalışmayı siteye ekle"
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Klipleri içeren çalışmanın numarası (Actions sayfasındaki linkin sonundaki sayı)"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: klipler
+          path: dl
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish every stream folder in that run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          dirs=(dl/*/)
+          [ -f dl/klipler.json ] && dirs+=(dl/)
+          for d in "${dirs[@]}"; do python scripts/publish.py "$d"; done

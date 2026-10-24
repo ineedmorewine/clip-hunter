@@ -572,6 +572,10 @@ def write_report(vod_url: str, title: str, rows: list[dict], complete: bool = Tr
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "klipler.md").write_text(text, encoding="utf-8")
     (OUT / "klipler.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    if montage:
+        (OUT / "fragman.json").write_text(json.dumps(
+            [{"start_ts": fmt_ts(m.start), "seconds": round(m.end - m.start), "why": m.why} for m in montage],
+            ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n" + text)
 
 

@@ -1,0 +1,97 @@
+:root {
+  /* Warm charcoal palette (no navy), gold accent from the channel's crescent. */
+  --bg: #121110;
+  --surface: #1b1917;
+  --surface-2: #24211e;
+  --line: #34302b;
+  --text: #eeeae4;
+  --muted: #a39c92;
+  --accent: #d6a84e;
+  --accent-ink: #1a1408;
+  --ai: #8fbf8a;
+  --radius: 14px;
+  --gap: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "DM Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+
+.top { border-bottom: 1px solid var(--line); padding: 28px 0 22px; }
+.top-inner { display: flex; gap: 14px; align-items: center; }
+.moon { width: 40px; height: 40px; fill: var(--accent); flex: none; }
+h1 { margin: 0; font: 600 28px/1.1 "Fraunces", Georgia, serif; letter-spacing: -0.01em; }
+h1 em { font-style: normal; color: var(--accent); }
+.tagline { margin: 4px 0 0; color: var(--muted); }
+
+.status { color: var(--muted); padding: 48px 0; text-align: center; }
+
+/* One stream */
+.vod { margin: 28px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.vod > summary {
+  list-style: none; cursor: pointer; padding: 18px 20px;
+  display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 2px; align-items: baseline;
+}
+.vod-meta { grid-column: 2; }
+.vod > summary::-webkit-details-marker { display: none; }
+.vod > summary::before { content: "▸"; color: var(--accent); transition: transform .15s; }
+.vod[open] > summary::before { transform: rotate(90deg); }
+.vod-title { font: 600 20px/1.25 "Fraunces", Georgia, serif; }
+.vod-meta { color: var(--muted); font-size: 14px; }
+.vod-body { padding: 0 20px 22px; }
+
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 12px; font-weight: 500; }
+
+/* Trailer: video next to its moment list */
+.trailer { display: grid; grid-template-columns: minmax(0, 320px) 1fr; gap: 20px; align-items: start; }
+.trailer ol { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.trailer li { margin: 0 0 6px; }
+.trailer li b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Clips grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--gap); }
+.card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.card .info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ts { color: var(--accent); font-weight: 700; }
+.chip { border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
+.chip.ai { color: var(--ai); border-color: #3c4a39; }
+.why { margin: 0; font-size: 14px; }
+.quote { margin: 0; font-size: 13px; color: var(--muted); font-style: italic; }
+
+video {
+  display: block; width: 100%; aspect-ratio: 9 / 16; background: #000;
+  border-radius: 0; object-fit: contain;
+}
+.trailer video { border-radius: 12px; }
+
+.btn {
+  margin-top: auto; align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent); color: var(--accent-ink); text-decoration: none;
+  font-weight: 700; font-size: 14px; padding: 7px 14px; border-radius: 99px;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.foot { color: var(--muted); font-size: 13px; padding: 24px 16px 40px; text-align: center; }
+
+@media (max-width: 640px) {
+  .top { padding: 20px 0 16px; }
+  h1 { font-size: 24px; }
+  .trailer { grid-template-columns: 1fr; }
+  .trailer video { max-width: 340px; margin: 0 auto; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .vod > summary, .vod-body { padding-left: 14px; padding-right: 14px; }
+  .why { font-size: 13px; }
+}

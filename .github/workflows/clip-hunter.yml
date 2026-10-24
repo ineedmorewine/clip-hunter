@@ -70,6 +70,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VOD_URL: ${{ inputs.vod_url }}
           MAX_CLIPS: ${{ inputs.max_clips }}
           MIN_SCORE: ${{ inputs.min_score }}
