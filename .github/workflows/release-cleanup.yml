@@ -1,0 +1,20 @@
+name: "Siteden yayın kaldır"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Kaldırılacak yayının etiketi (vod-...)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: gh release delete "$TAG" --yes --cleanup-tag -R "$GITHUB_REPOSITORY"

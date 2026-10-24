@@ -59,7 +59,7 @@ def publish(folder: Path) -> str | None:
     # including the legacy tag format that had no VOD id at the end.
     old_tags = [tag]
     head, _, last = tag.rpartition("-")
-    if last.isdigit():
+    if head.count("-") >= 4:  # tag ends in an id / link suffix: also drop the suffix-less legacy tag
         old_tags.append(head)
     for old in old_tags:
         subprocess.run(["gh", "release", "delete", old, "--yes", "--cleanup-tag"],
