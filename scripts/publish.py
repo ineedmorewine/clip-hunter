@@ -55,9 +55,15 @@ def publish(folder: Path) -> str | None:
     files = sorted(str(p) for p in (folder / "klipler").glob("*.mp4"))
     if meta["has_montage"]:
         files.append(str(folder / "fragman.mp4"))
-    # Replace an earlier release of the same VOD (e.g. a re-run with a better prompt).
-    subprocess.run(["gh", "release", "delete", tag, "--yes", "--cleanup-tag"],
-                   capture_output=True, text=True)
+    # Replace an earlier release of the same VOD (e.g. a re-run with a better prompt),
+    # including the legacy tag format that had no VOD id at the end.
+    old_tags = [tag]
+    head, _, last = tag.rpartition("-")
+    if last.isdigit():
+        old_tags.append(head)
+    for old in old_tags:
+        subprocess.run(["gh", "release", "delete", old, "--yes", "--cleanup-tag"],
+                       capture_output=True, text=True)
     proc = subprocess.run(
         ["gh", "release", "create", tag, *files, "--title", f"{meta['date']} · {meta['title']}",
          "--notes-file", str(notes), "--latest=false"],
