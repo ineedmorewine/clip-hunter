@@ -122,12 +122,15 @@ def main() -> int:
         publish(folder)
         summary.append((folder / "klipler.md").read_text(encoding="utf-8"))
     elif vod_url:
-        key = slugify(vod_url)[-40:]
-        folder = OUTPUT / f"manuel_{key[-12:]}"
-        complete = process(vod_url, vod_url, "", folder, CACHE / key, gem, max_clips, min_score)
+        # Optional "#YYYY-MM-DD#Title" after the link names the stream on the site.
+        url, _, extra = vod_url.partition("#")
+        day, _, title = extra.partition("#")
+        key = slugify(url)[-40:]
+        folder = OUTPUT / f"{day or 'manuel'}_{slugify(title or 'yayin')}_{key[-8:]}"
+        complete = process(url, url, title, folder, CACHE / key, gem, max_clips, min_score)
         summary.append((folder / "klipler.md").read_text(encoding="utf-8"))
         if complete:
-            deliver(folder, "elle verilen yayın")
+            deliver(folder, title or "elle verilen yayın")
     else:
         state = load_state()
         todo = [v for v in channel_vods()
