@@ -118,13 +118,9 @@ async function main() {
     return;
   }
 
-  // A re-processed stream can exist twice for a while; keep the newest copy.
-  const newest = new Map();
-  for (const v of releases.map(parseRelease).filter(Boolean)) {
-    const key = `${v.date}|${v.title}`;
-    if (!newest.has(key) || v.created > newest.get(key).created) newest.set(key, v);
-  }
-  const vods = [...newest.values()]
+  // Two streams can share a title and date, so every release is its own stream;
+  // re-processing replaces the old release on the publishing side.
+  const vods = releases.map(parseRelease).filter(Boolean)
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created.localeCompare(a.created));
   if (!vods.length) {
     app.replaceChildren(el("p", { class: "status", text: S.empty }));
