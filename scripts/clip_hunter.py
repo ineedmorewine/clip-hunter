@@ -504,12 +504,14 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     GUN[:] = gun
 
     micros: list[Candidate] = []
+    gemini_failed = False
     try:
         cands, micros = text_candidates(gem, lines, laugh, shout, levels, duration)
         source = "AI"
     except Exception as exc:  # quota, outage or a content block: fall back to laughter
         print(f"   ! Gemini unavailable ({str(exc)[:120]}); using laughter detection only")
         cands, source = [], "kahkaha"
+        gemini_failed = not isinstance(exc, ContentBlocked)
     if not cands:
         cands, source = laughter_candidates(laugh, shout), "kahkaha"
     if not micros:
@@ -518,7 +520,11 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
         snap(c, lines, duration)
         c.verified = source == "AI"
     final = [c for c in dedupe(cands) if c.score >= min_score]
-    complete = True
+    # Gemini down and nothing usable from laughter alone: leave this VOD for the next run
+    # instead of publishing an empty result and marking it done.
+    complete = not (gemini_failed and not final)
+    if not complete:
+        print("   ! no clips without Gemini; this VOD will be retried on the next run")
     rows = []
     if complete:
         final = sorted(final, key=lambda c: c.score, reverse=True)[:max_clips]

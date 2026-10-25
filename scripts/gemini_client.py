@@ -127,6 +127,10 @@ class Gemini:
                 except RuntimeError as exc:
                     last_error = exc
                     time.sleep(5)
+                except Exception as exc:  # dropped connection, timeout: transient, try again
+                    last_error = exc
+                    print(f"  {model}: connection problem ({str(exc)[:80]}), retrying")
+                    time.sleep(30 * (attempt + 1))
         if not self.models:
             raise QuotaExhausted("every Gemini model is out of quota for today")
         raise RuntimeError(f"all Gemini models failed: {last_error}")

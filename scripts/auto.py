@@ -150,7 +150,7 @@ def main() -> int:
                                max_clips, min_score)
             summary.append((folder / "klipler.md").read_text(encoding="utf-8"))
             if not complete:
-                print("Quota reached; the rest continues on the next scheduled run.")
+                print("Gemini unavailable; this VOD and the rest continue on the next scheduled run.")
                 break
             deliver(folder, label)
             state["done"].append(v["id"])
