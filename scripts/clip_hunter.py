@@ -42,6 +42,7 @@ SKIPPED: list[str] = []  # time ranges that could not be analysed in this run
 # ---------- schemas returned by the model ----------
 
 class Moment(BaseModel):
+    kind: str = "komik"  # "komik" (funny) or "oyun" (good play)
     start: str
     end: str
     hook: int
@@ -83,6 +84,7 @@ class Candidate:
     why: str
     quote: str
     verified: bool = False
+    kind: str = "komik"  # "komik" (funny) or "oyun" (good play)
 
 
 # ---------- helpers ----------
@@ -181,7 +183,8 @@ def clamp(c: Candidate, duration: float) -> Candidate:
 
 # ---------- quota-free analysis ----------
 
-LAUGH_ON, SHOUT_ON = 0.35, 0.5
+LAUGH_ON, SHOUT_ON, GUN_ON = 0.35, 0.5, 0.4
+GUN: list[float] = []  # per-second gunfire probability of the VOD being processed
 
 
 def annotated_transcript(lines: list[Line], laugh: list[float], shout: list[float],
@@ -195,6 +198,8 @@ def annotated_transcript(lines: list[Line], laugh: list[float], shout: list[floa
             tags.append("[KAHKAHA]")
         if any(shout[s] > SHOUT_ON for s in secs if s < len(shout)):
             tags.append("[BAĞIRMA]")
+        if sum(1 for s in secs if s < len(GUN) and GUN[s] > GUN_ON) >= 2:
+            tags.append("[ATEŞ]")
         if any(s in spikes for s in secs):
             tags.append("[SES↑]")
         out.append(f"[{fmt_ts(ln.start)}] {ln.text} {' '.join(tags)}".rstrip())
@@ -206,7 +211,7 @@ def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
     """One text-only Gemini request per VOD: story clips + montage snippets. Cached."""
     if gem is None:
         raise RuntimeError("Gemini is not configured")
-    cache_file = CACHE / "analysis_v2.json"
+    cache_file = CACHE / "analysis_v3.json"
     if cache_file.exists():
         analysis = Analysis(**json.loads(cache_file.read_text(encoding="utf-8")))
         print("AI analysis: from cache")
@@ -237,7 +242,7 @@ def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
                 continue
             if e > s:
                 out.append(Candidate(s, e, int(m.score) if scored else 0, m.why,
-                                     getattr(m, "quote", "")))
+                                     getattr(m, "quote", ""), kind=getattr(m, "kind", "komik") or "komik"))
         return out
 
     cands, micros = to_cands(analysis.moments, True), to_cands(analysis.montage, False)
@@ -495,7 +500,8 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     levels = loudness_curve(audio)
 
     lines = transcribe(audio, CACHE / "transcript.json")
-    laugh, shout = laughter_curve(audio, CACHE / "laughter.json", Path("models"))
+    laugh, shout, gun = laughter_curve(audio, CACHE / "laughter.json", Path("models"))
+    GUN[:] = gun
 
     micros: list[Candidate] = []
     try:

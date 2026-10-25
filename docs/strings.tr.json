@@ -38,5 +38,6 @@
   "tokenPlaceholder": "github_pat_…",
   "tokenSave": "Kaydet ve başlat",
   "tokenDescription": "clip-hunter sitesindeki yenile düğmesi",
-  "tokenRejected": "Anahtar kabul edilmedi. Repo erişimini ve Actions: Read and write iznini kontrol edip tekrar dene."
+  "tokenRejected": "Anahtar kabul edilmedi. Repo erişimini ve Actions: Read and write iznini kontrol edip tekrar dene.",
+  "kindPlay": "İyi oyun"
 }

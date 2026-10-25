@@ -29,7 +29,7 @@ def describe(folder: Path) -> dict:
     return {
         "title": re.sub(r"\s*\(\d{4}-\d{2}-\d{2}\)$", "", title),
         "date": date.group(0) if date else "",
-        "clips": [{k: c[k] for k in ("no", "file", "start_ts", "end_ts", "score", "why", "quote", "verified")
+        "clips": [{k: c[k] for k in ("no", "file", "start_ts", "end_ts", "score", "why", "quote", "verified", "kind")
                    if k in c} | {"seconds": round(c["end"] - c["start"])} for c in clips],
         "montage": montage,
         "has_montage": (folder / "fragman.mp4").exists(),

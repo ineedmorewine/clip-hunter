@@ -20,6 +20,7 @@ YAMNET_URLS = [
 ]
 LAUGH_LABELS = {"Laughter", "Giggle", "Snicker", "Belly laugh", "Chuckle, chortle", "Baby laughter"}
 SHOUT_LABELS = {"Shout", "Yell", "Screaming", "Bellow", "Whoop", "Children shouting"}
+GUN_LABELS = {"Gunshot, gunfire", "Machine gun", "Fusillade", "Artillery fire", "Cap gun", "Explosion", "Burst, pop"}
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL") or "large-v3-turbo"
 
 
@@ -99,15 +100,16 @@ def _labels(model: Path) -> list[str]:
     return [r.split(",", 2)[-1].strip().strip('"') for r in rows]
 
 
-def laughter_curve(audio: Path, cache_file: Path, model_dir: Path) -> tuple[list[float], list[float]]:
-    """Return (laugh, shout) probability per second. Never fatal: zeros on failure."""
+def laughter_curve(audio: Path, cache_file: Path, model_dir: Path) -> tuple[list[float], list[float], list[float]]:
+    """Return (laugh, shout, gunfire) probability per second. Never fatal: zeros on failure."""
     if cache_file.exists():
         data = json.loads(cache_file.read_text(encoding="utf-8"))
-        print("Laughter: from cache")
-        return data["laugh"], data["shout"]
+        if "gun" in data:  # older caches lack gunfire and are recomputed
+            print("Audio events: from cache")
+            return data["laugh"], data["shout"], data["gun"]
     pcm = load_pcm(audio)
     seconds = int(len(pcm) / 16000) + 1
-    laugh, shout = [0.0] * seconds, [0.0] * seconds
+    laugh, shout, gun = [0.0] * seconds, [0.0] * seconds, [0.0] * seconds
     try:
         from ai_edge_litert.interpreter import Interpreter
 
@@ -115,6 +117,7 @@ def laughter_curve(audio: Path, cache_file: Path, model_dir: Path) -> tuple[list
         labels = _labels(model)
         laugh_idx = [i for i, n in enumerate(labels) if n in LAUGH_LABELS]
         shout_idx = [i for i, n in enumerate(labels) if n in SHOUT_LABELS]
+        gun_idx = [i for i, n in enumerate(labels) if n in GUN_LABELS]
         print(f"YAMNet: {len(labels)} classes, laugh={laugh_idx}, shout={shout_idx}")
         interp = Interpreter(model_path=str(model))
         inp = interp.get_input_details()[0]
@@ -133,9 +136,10 @@ def laughter_curve(audio: Path, cache_file: Path, model_dir: Path) -> tuple[list
             scores = interp.get_tensor(out_index).reshape(-1)
             laugh[sec] = float(sum(scores[i] for i in laugh_idx))
             shout[sec] = float(sum(scores[i] for i in shout_idx))
+            gun[sec] = float(sum(scores[i] for i in gun_idx))
     except Exception as exc:
         print(f"   ! laughter detection unavailable: {exc}")
-        return laugh, shout
-    cache_file.write_text(json.dumps({"laugh": laugh, "shout": shout}), encoding="utf-8")
+        return laugh, shout, gun
+    cache_file.write_text(json.dumps({"laugh": laugh, "shout": shout, "gun": gun}), encoding="utf-8")
     print(f"Laughter: {sum(1 for v in laugh if v > 0.3)} seconds with laughter")
-    return laugh, shout
+    return laugh, shout, gun

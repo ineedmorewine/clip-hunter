@@ -144,3 +144,4 @@ video {
   .stream-title { font-size: 15px; }
   .detail-title { font-size: 22px; }
 }
+.chip.play { color: var(--accent); border-color: #5a4a26; }
