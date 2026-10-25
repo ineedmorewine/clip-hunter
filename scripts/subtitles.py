@@ -40,6 +40,10 @@ def _words(model, pcm: np.ndarray, start: float, end: float) -> list[dict]:
     return out
 
 
+# Whisper invents these on silence/music (YouTube outro captions in its training data).
+HALLUCINATION = re.compile(r"altyaz[ıi]\s*m\.?\s*k|abone ol|izledi[ğg]iniz i[çc]in|altyaz[ıi] .*taraf[ıi]ndan", re.I)
+
+
 def _cues(words: list[dict]) -> list[dict]:
     cues, cur = [], []
 
@@ -59,6 +63,7 @@ def _cues(words: list[dict]) -> list[dict]:
         if re.search(r"[.!?…]$", w["t"]):
             flush()
     flush()
+    cues = [c for c in cues if not HALLUCINATION.search(c["t"])]
     # Hold each cue on screen until the next one starts (max 0.6 s extra), never overlapping.
     for a, b in zip(cues, cues[1:]):
         a["e"] = round(min(b["s"], a["e"] + 0.6), 2)
