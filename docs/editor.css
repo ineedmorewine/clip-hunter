@@ -83,3 +83,5 @@
 .cue { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; }
 .cue input[type=text] { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; min-width: 0; }
 .cue select { border: 0; border-radius: 6px; padding: 4px 6px; color: #111; font: inherit; font-weight: 700; }
+
+[hidden] { display: none !important; }
