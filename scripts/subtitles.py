@@ -71,34 +71,41 @@ def _speakers(pcm: np.ndarray, spans: list[tuple[float, float]]) -> list[int]:
     """Cluster voice embeddings of absolute (start, end) spans; returns one index per span."""
     from resemblyzer import VoiceEncoder
     from sklearn.cluster import AgglomerativeClustering
+    from sklearn.metrics import silhouette_score
 
     enc = VoiceEncoder("cpu", verbose=False)
     embeds = []
     for s, e in spans:
         # Very short spans give noisy embeddings; pad them out to at least 1.2 s.
         mid = (s + e) / 2
-        if e - s < 1.2:
-            s, e = mid - 0.6, mid + 0.6
+        if e - s < 1.5:
+            s, e = mid - 0.75, mid + 0.75
         chunk = pcm[max(0, int(s * SR)):int(e * SR)]
         embeds.append(enc.embed_utterance(chunk) if chunk.size > SR // 4 else None)
     ok = [i for i, v in enumerate(embeds) if v is not None]
-    if len(ok) < 4:
+    if len(ok) < 8:
         return [0] * len(spans)
     X = np.stack([embeds[i] for i in ok])
-    labels = AgglomerativeClustering(n_clusters=None, distance_threshold=0.55, metric="cosine",
-                                     linkage="average").fit_predict(X)
-    # Keep the biggest clusters as speakers; fold small ones into the closest big one.
-    counts = np.bincount(labels)
-    big = [int(c) for c in np.argsort(-counts) if counts[c] >= max(3, len(ok) * 0.04)][:MAX_SPEAKERS] \
-        or [int(np.argmax(counts))]
-    cents = {c: X[labels == c].mean(axis=0) for c in big}
-    order = {c: n for n, c in enumerate(big)}  # 0 = most frequent voice
+    # Pick the number of voices by silhouette score; a weak best score means one voice.
+    best_k, best_score, best_labels = 1, 0.0, np.zeros(len(ok), dtype=int)
+    for k in range(2, MAX_SPEAKERS + 1):
+        if len(ok) <= k * 3:
+            break
+        labels = AgglomerativeClustering(n_clusters=k, metric="cosine", linkage="average").fit_predict(X)
+        if min(np.bincount(labels)) < max(3, len(ok) * 0.03):
+            continue  # a tiny cluster is noise, not a person
+        score = float(silhouette_score(X, labels, metric="cosine"))
+        print(f"   speakers k={k}: silhouette {score:.3f}")
+        if score > best_score:
+            best_k, best_score, best_labels = k, score, labels
+    if best_score < 0.08:
+        best_labels = np.zeros(len(ok), dtype=int)
+    print(f"   speakers: {best_k if best_score >= 0.08 else 1}")
+    counts = np.bincount(best_labels)
+    order = {int(c): n for n, c in enumerate(np.argsort(-counts))}  # 0 = most frequent voice
     result = [0] * len(spans)
     for row, i in enumerate(ok):
-        c = int(labels[row])
-        if c not in order:
-            c = max(big, key=lambda b: float(np.dot(X[row], cents[b])))
-        result[i] = order[c]
+        result[i] = order[int(best_labels[row])]
     # Spans without an embedding inherit the previous speaker.
     for i in range(1, len(spans)):
         if embeds[i] is None:
@@ -117,16 +124,12 @@ def build(pcm: np.ndarray, ranges: list[tuple[float, float]]) -> list[dict]:
         print(f"Subtitles {n}/{len(ranges)}")
         per_clip.append(_cues(_words(model, pcm, s, e)))
 
-    # One speaker label per Whisper segment (cues of a segment share it).
+    # One speaker label per cue (a Whisper segment can hold several voices).
     spans, keys = [], []
     for k, ((s, _), cues) in enumerate(zip(ranges, per_clip)):
-        segs: dict[int, list[float]] = {}
-        for c in cues:
-            span = segs.setdefault(c["seg"], [c["s"], c["e"]])
-            span[1] = c["e"]
-        for seg, (a, b) in segs.items():
-            spans.append((s + a, s + b))
-            keys.append((k, seg))
+        for j, c in enumerate(cues):
+            spans.append((s + c["s"], s + c["e"]))
+            keys.append((k, j))
     try:
         labels = _speakers(pcm, spans)
     except Exception as exc:  # optional: subtitles still work in one colour
@@ -137,6 +140,6 @@ def build(pcm: np.ndarray, ranges: list[tuple[float, float]]) -> list[dict]:
     out = []
     for k, cues in enumerate(per_clip):
         out.append({"speakers": speakers,
-                    "cues": [{"s": c["s"], "e": c["e"], "t": c["t"], "p": who.get((k, c["seg"]), 0)}
-                             for c in cues]})
+                    "cues": [{"s": c["s"], "e": c["e"], "t": c["t"], "p": who.get((k, j), 0)}
+                             for j, c in enumerate(cues)]})
     return out
