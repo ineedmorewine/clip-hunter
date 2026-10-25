@@ -207,7 +207,10 @@ function clipCard(clip, url) {
       ]),
       el("p", { class: "why", text: clip.why }),
       clip.quote ? el("p", { class: "quote", text: `“${clip.quote}”` }) : null,
-      el("a", { class: "btn", href: url, download: clip.file, text: `↓ ${S.download}` }),
+      el("div", { class: "btn-row" }, [
+        el("a", { class: "btn", href: url, download: clip.file, text: `↓ ${S.download}` }),
+        el("a", { class: "btn ghost", href: `editor.html#${new URLSearchParams({ name: clip.file, url })}`, text: `✎ ${S.edit}` }),
+      ]),
     ]),
   ]);
 }

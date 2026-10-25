@@ -81,6 +81,9 @@ video {
   background: var(--accent); color: var(--accent-ink); text-decoration: none;
   font-weight: 700; font-size: 14px; padding: 7px 14px; border-radius: 99px;
 }
+.btn-row { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row .btn { margin-top: 0; }
+.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
 .btn:hover { filter: brightness(1.08); }
 .btn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
