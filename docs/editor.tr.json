@@ -65,5 +65,18 @@
   "dragHint": "Sticker ve yazıları videonun üzerinde sürükleyerek yerleştir.",
   "loadFailed": "Bu dosya açılamadı.",
   "stickerFailed": "Bu sticker yüklenemedi.",
-  "startInClip": "Klipte nerede"
+  "startInClip": "Klipte nerede",
+  "tabSubs": "Altyazı",
+  "subsLoading": "Altyazı yükleniyor…",
+  "subsShow": "Altyazıyı göster",
+  "subsHelp": "Yanlış duyulan yeri kutuda düzelt; videoda hemen değişir. Renk yanlışsa sağdaki numarayı değiştir.",
+  "subsNone": "Bu klip için hazır altyazı yok (eski yayın ya da kendi videon). \"Satır ekle\" ile elle yazabilirsin.",
+  "subsSpeakers": "Konuşanların renkleri",
+  "subsSpeaker": "Konuşan {n}",
+  "subsStyle": "Görünüm",
+  "subsSize": "Boyut",
+  "subsPosition": "Yükseklik",
+  "subsLines": "Satırlar",
+  "subsAdd": "Şu ana satır ekle",
+  "subsJump": "Bu satıra git"
 }

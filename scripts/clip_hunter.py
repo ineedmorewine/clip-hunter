@@ -24,7 +24,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from gemini_client import ContentBlocked, Gemini, QuotaExhausted
-from local_signals import Line, laughter_curve, transcribe
+from local_signals import Line, laughter_curve, load_pcm, transcribe
 from kick_hls import download_range, list_renditions, list_segments, renditions_from_master
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -303,21 +303,49 @@ def laughter_montage(laugh: list[float], shout: list[float]) -> list[Candidate]:
     return [Candidate(max(0, c.end - 11), c.end, 0, c.why, "") for c in laughter_candidates(laugh, shout, 12)]
 
 
-def render_montage(segments, micros: list[Candidate]) -> Path | None:
+XFADE = 0.3  # length of the white-flash transition between trailer pieces
+
+
+def _duration(path: Path) -> float:
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True)
+    return float(out.stdout.strip())
+
+
+def render_montage(segments, micros: list[Candidate]) -> list[float]:
+    """Render the trailer with a short white flash between pieces.
+
+    Returns where each piece starts in fragman.mp4 (for subtitle timing); [] if nothing rendered.
+    """
     if not micros:
-        return None
+        return []
     pieces = []
     for i, m in enumerate(micros, 1):
         print(f"Montage piece {i}/{len(micros)} at {fmt_ts(m.start)}")
         pieces.append(render(segments, m, 100 + i, WORK / f"piece_{i:02d}.mp4", fade=True))
-    listing = WORK / "pieces.txt"
-    listing.write_text("".join(f"file '{p.resolve()}'\n" for p in pieces), encoding="utf-8")
+    durs = [_duration(p) for p in pieces]
+    offsets, at = [0.0], 0.0
+    for d in durs[:-1]:
+        at += d - XFADE
+        offsets.append(round(at, 3))
+    inputs = [arg for p in pieces for arg in ("-i", str(p))]
+    if len(pieces) == 1:
+        graph, vlast, alast = "[0:v]null[v0];[0:a]anull[a0]", "[v0]", "[a0]"
+    else:
+        parts, vlast, alast = [], "[0:v]", "[0:a]"
+        for i in range(1, len(pieces)):
+            vout, aout = f"[v{i}]", f"[a{i}]"
+            parts.append(f"{vlast}[{i}:v]xfade=transition=fadewhite:duration={XFADE}:offset={offsets[i]}{vout}")
+            parts.append(f"{alast}[{i}:a]acrossfade=d={XFADE}{aout}")
+            vlast, alast = vout, aout
+        graph = ";".join(parts)
     out = OUT / "fragman.mp4"
-    run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
-         "-c", "copy", "-movflags", "+faststart", str(out)])
+    run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph,
+         "-map", vlast, "-map", alast, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+         "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)])
     for p in pieces:
         p.unlink(missing_ok=True)
-    return out
+    return offsets
 
 
 def snap(c: Candidate, lines: list[Line], duration: float) -> None:
@@ -461,6 +489,30 @@ def render(segments, c: Candidate, index: int, out: Path | None = None, fade: bo
     return out
 
 
+def write_subtitles(audio: Path, rows: list[dict], montage: list[Candidate], offsets: list[float]) -> None:
+    """subs/<clip file>.json for every clip and the trailer, read by the site's editor."""
+    import subtitles
+
+    ranges = [(r["start"], r["end"]) for r in rows] + [(m.start, m.end) for m in montage]
+    if not ranges:
+        return
+    subs = subtitles.build(load_pcm(audio), ranges)
+    folder = OUT / "subs"
+    folder.mkdir(exist_ok=True)
+    for r, sub in zip(rows, subs):
+        (folder / f"{r['file']}.json").write_text(json.dumps(sub, ensure_ascii=False), encoding="utf-8")
+    if montage and offsets:
+        cues = []
+        ends = offsets[1:] + [float("inf")]
+        for off, end, sub in zip(offsets, ends, subs[len(rows):]):
+            for c in sub["cues"]:
+                s, e = c["s"] + off, min(c["e"] + off, end)
+                if e - s > 0.15:
+                    cues.append({**c, "s": round(s, 2), "e": round(e, 2)})
+        (folder / "fragman.mp4.json").write_text(
+            json.dumps({"speakers": subs[0]["speakers"], "cues": cues}, ensure_ascii=False), encoding="utf-8")
+
+
 def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
             gem: Gemini, max_clips: int = 20, min_score: int = 6) -> bool:
     """Find and render clips for one VOD. Returns False if the quota cut it short.
@@ -536,11 +588,16 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
             rows.append({"no": i, "file": path.name, **asdict(c),
                          "start_ts": fmt_ts(c.start), "end_ts": fmt_ts(c.end)})
         montage = pick_montage(micros, duration)
+        offsets: list[float] = []
         try:
-            render_montage(high_segments, montage)
+            offsets = render_montage(high_segments, montage)
         except Exception as exc:
             print(f"   ! montage failed: {exc}")
             montage = []
+        try:
+            write_subtitles(audio, rows, montage, offsets)
+        except Exception as exc:  # subtitles are a bonus; never lose the clips over them
+            print(f"   ! subtitles failed: {str(exc)[:200]}")
     audio.unlink(missing_ok=True)
     write_report(link, title, rows, complete, montage if complete else [])
     return complete

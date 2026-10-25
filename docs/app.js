@@ -191,7 +191,7 @@ function video(src, extra = {}) {
   return el("video", { src: `${src}#t=0.1`, controls: "", preload: "metadata", playsinline: "", ...extra });
 }
 
-function clipCard(clip, url) {
+function clipCard(clip, url, tag) {
   const chip = clip.verified
     ? el("span", { class: "chip ai", text: S.pickedByAI })
     : el("span", { class: "chip", text: S.pickedByLaughter });
@@ -209,7 +209,7 @@ function clipCard(clip, url) {
       clip.quote ? el("p", { class: "quote", text: `“${clip.quote}”` }) : null,
       el("div", { class: "btn-row" }, [
         el("a", { class: "btn", href: url, download: clip.file, text: `↓ ${S.download}` }),
-        el("a", { class: "btn ghost", href: `editor.html#${new URLSearchParams({ name: clip.file, url })}`, text: `✎ ${S.edit}` }),
+        el("a", { class: "btn ghost", href: `editor.html#${new URLSearchParams({ name: clip.file, url, tag })}`, text: `✎ ${S.edit}` }),
       ]),
     ]),
   ]);
@@ -249,13 +249,16 @@ function detailView(vod, tab) {
 
   let body;
   if (tab === "clips") {
-    body = el("div", { class: "grid" }, clips.map(c => clipCard(c, vod.assets[c.file])));
+    body = el("div", { class: "grid" }, clips.map(c => clipCard(c, vod.assets[c.file], vod.tag)));
   } else {
     const total = (vod.montage || []).reduce((s, m) => s + (m.seconds || 0), 0);
     body = el("div", { class: "trailer" }, [
       el("div", {}, [video(trailerUrl),
-        el("a", { class: "btn", href: trailerUrl, download: "fragman.mp4", text: `↓ ${S.download}`,
-                  style: "margin-top:12px" })]),
+        el("div", { class: "btn-row", style: "margin-top:12px" }, [
+          el("a", { class: "btn", href: trailerUrl, download: "fragman.mp4", text: `↓ ${S.download}` }),
+          el("a", { class: "btn ghost", href: `editor.html#${new URLSearchParams({ name: "fragman.mp4", url: trailerUrl, tag: vod.tag })}`,
+                    text: `✎ ${S.edit}` }),
+        ])]),
       el("div", {}, [
         el("h3", { text: fmt(S.trailerParts, { n: (vod.montage || []).length, s: total }) }),
         el("ol", {}, (vod.montage || []).map(m =>

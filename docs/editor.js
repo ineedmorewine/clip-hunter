@@ -4,6 +4,9 @@
 
 const W = 1080, H = 1920, FPS = 30;
 const GIPHY_KEY = "clip-hunter-giphy-key";
+const REPO = "ineedmorewine/clip-hunter";
+// Speaker colours for subtitles: first = most frequent voice. Warm/bright, no navy.
+const SUB_COLORS = ["#ffffff", "#ffd84d", "#7ee0a1", "#ff8fb1", "#ffa94d", "#c9a7ff"];
 const EMOJI = [
   "1f602", "1f923", "1f62d", "1f480", "1f525", "1f631", "1f92f", "1f633", "1f644", "1f60f",
   "1f921", "1f440", "1f4af", "1f44f", "1f389", "1f621", "1f92c", "1f634", "1f976", "1f975",
@@ -18,6 +21,7 @@ const state = {
   overlays: [],    // { id, kind: sticker|text, start, dur, x, y, w, frames|text, ... }
   sounds: [],      // { id, name, start, buffer, volume, credit }
   selected: null,
+  subs: { on: true, size: 0.075, y: 0.74, colors: [...SUB_COLORS], cues: [], loaded: false },
   t: 0,            // output time in seconds
   playing: false,
   exporting: false,
@@ -123,6 +127,42 @@ function stickerFrame(o, local) {
   return o.frames[o.frames.length - 1].bmp;
 }
 
+// Base-clip time -> output time (first base segment that contains it), or null if trimmed away.
+function outTimeOf(bt) {
+  const s = segments().find(x => x.type === "base" && bt >= x.from && bt < x.to);
+  return s ? s.outStart + (bt - s.from) : null;
+}
+
+function wrapLines(c, text, maxW) {
+  const lines = [];
+  let cur = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const test = cur ? `${cur} ${word}` : word;
+    if (cur && c.measureText(test).width > maxW) { lines.push(cur); cur = word; } else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function drawSubs(c, t) {
+  const sb = state.subs;
+  if (!sb.on || !sb.cues.length) return;
+  const seg = segAt(t);
+  if (seg?.type !== "base") return;
+  const bt = seg.from + (t - seg.outStart);
+  const cue = sb.cues.find(q => bt >= q.s && bt < q.e);
+  if (!cue || !cue.t.trim()) return;
+  const size = Math.round(sb.size * W);
+  c.font = `800 ${size}px "DM Sans", system-ui, sans-serif`;
+  c.textAlign = "center"; c.textBaseline = "middle"; c.lineJoin = "round";
+  const lines = wrapLines(c, cue.t.toLocaleUpperCase("tr-TR"), W * 0.86);
+  lines.forEach((line, i) => {
+    const y = sb.y * H + (i - (lines.length - 1) / 2) * size * 1.15;
+    c.lineWidth = size * 0.22; c.strokeStyle = "#000"; c.strokeText(line, W / 2, y);
+    c.fillStyle = sb.colors[cue.p] || "#ffffff"; c.fillText(line, W / 2, y);
+  });
+}
+
 function draw() {
   const c = $("canvas").getContext("2d");
   c.fillStyle = "#000";
@@ -133,6 +173,7 @@ function draw() {
   else if (s?.ins.kind === "video" && s.ins.el.videoWidth) drawContain(c, s.ins.el, s.ins.el.videoWidth, s.ins.el.videoHeight);
   else if (s?.ins.kind === "image") drawContain(c, s.ins.el, s.ins.el.width, s.ins.el.height);
 
+  drawSubs(c, t);
   for (const o of state.overlays) {
     if (t < o.start || t >= o.start + o.dur) continue;
     if (o.kind === "sticker") {
@@ -339,6 +380,7 @@ function openBase(file) {
     $("open-screen").hidden = true; $("editor").hidden = false;
     $("export-btn").removeAttribute("disabled");
     renderTrim(); renderLayers();
+    loadSubs();
     v.addEventListener("seeked", draw);
     seek(0);
   }, { once: true });
@@ -381,8 +423,8 @@ function setupCanvas() {
 
 // ---------- panels ----------
 
-const TABS = ["Stickers", "Sounds", "Inserts", "Text"];
-let currentTab = "Stickers";
+const TABS = ["Subs", "Stickers", "Sounds", "Inserts", "Text"];
+let currentTab = "Subs";
 
 function renderTabs() {
   $("panel-tabs").replaceChildren(...TABS.map(t => el("a", {
@@ -397,6 +439,7 @@ function renderPanel() {
   if (currentTab === "Sounds") body.replaceChildren(...soundPanel());
   if (currentTab === "Inserts") body.replaceChildren(...insertPanel());
   if (currentTab === "Text") body.replaceChildren(...textPanel());
+  if (currentTab === "Subs") body.replaceChildren(...subsPanel());
 }
 
 function stickerPanel() {
@@ -485,6 +528,80 @@ function insertPanel() {
       } }),
     ]),
   ];
+}
+
+async function loadSubs() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const tag = params.get("tag"), name = params.get("name");
+  if (tag && name) {
+    try {
+      const res = await fetch(`https://raw.githubusercontent.com/${REPO}/main/subs/${encodeURIComponent(tag)}/${encodeURIComponent(name)}.json`);
+      if (res.ok) {
+        const data = await res.json();
+        state.subs.cues = data.cues.map(q => ({ s: q.s, e: q.e, t: q.t, p: q.p || 0 }));
+        while (state.subs.colors.length < (data.speakers || 1)) state.subs.colors.push("#ffffff");
+      }
+    } catch { /* no subtitles for this clip */ }
+  }
+  state.subs.loaded = true;
+  if (currentTab === "Subs") renderPanel();
+  draw();
+}
+
+function subsPanel() {
+  const sb = state.subs;
+  if (!sb.loaded) return [el("p", { class: "muted", text: S.subsLoading })];
+  const speakerCount = Math.max(1, ...sb.cues.map(q => q.p + 1));
+  const show = el("label", { class: "check" }, [
+    el("input", { type: "checkbox", checked: sb.on ? "" : null, onchange: e => { sb.on = e.target.checked; draw(); } }),
+    document.createTextNode(` ${S.subsShow}`),
+  ]);
+  const colors = el("div", { class: "row-form" }, sb.colors.slice(0, Math.max(speakerCount, 1)).map((col, i) =>
+    el("label", { class: "muted small swatch" }, [document.createTextNode(fmt(S.subsSpeaker, { n: i + 1 })),
+      el("input", { type: "color", value: col, oninput: e => { sb.colors[i] = e.target.value; draw(); renderCueColors(); } })])));
+  const style = el("div", { class: "row-form" }, [
+    el("label", { class: "muted small" }, [document.createTextNode(`${S.subsSize} `),
+      el("input", { type: "range", min: "0.04", max: "0.12", step: "0.005", value: String(sb.size), oninput: e => { sb.size = Number(e.target.value); draw(); } })]),
+    el("label", { class: "muted small" }, [document.createTextNode(`${S.subsPosition} `),
+      el("input", { type: "range", min: "0.1", max: "0.92", step: "0.01", value: String(sb.y), oninput: e => { sb.y = Number(e.target.value); draw(); } })]),
+  ]);
+  const list = el("div", { class: "cue-list" });
+  const fillList = () => list.replaceChildren(...sb.cues.map(q => {
+    const sel = el("select", { class: "cue-sp", onchange: e => { q.p = Number(e.target.value); renderCueColors(); draw(); } },
+      sb.colors.map((col, i) => el("option", { value: String(i), selected: q.p === i ? "" : null, text: String(i + 1) })));
+    return el("div", { class: "cue" }, [
+      el("button", { class: "btn ghost small", type: "button", text: tc(q.s), title: S.subsJump,
+        onclick: () => { const ot = outTimeOf(q.s + 0.01); if (ot !== null) seek(ot); } }),
+      el("input", { type: "text", value: q.t, oninput: e => { q.t = e.target.value; draw(); } }),
+      sel,
+      el("button", { class: "btn ghost small", type: "button", text: "✕", title: S.remove,
+        onclick: () => { sb.cues.splice(sb.cues.indexOf(q), 1); fillList(); draw(); } }),
+    ]);
+  }));
+  fillList();
+  setTimeout(renderCueColors);
+  return [
+    show,
+    el("p", { class: "muted small", text: sb.cues.length ? S.subsHelp : S.subsNone }),
+    sb.cues.length ? el("h4", { text: S.subsSpeakers }) : null, sb.cues.length ? colors : null,
+    el("h4", { text: S.subsStyle }), style,
+    el("h4", { text: S.subsLines }),
+    el("button", { class: "btn ghost small", type: "button", text: `+ ${S.subsAdd}`, onclick: () => {
+      const s0 = baseTimeAt(state.t);
+      sb.cues.push({ s: s0, e: s0 + 1.5, t: "", p: 0 });
+      sb.cues.sort((a, b) => a.s - b.s);
+      fillList(); draw();
+      const idx = sb.cues.findIndex(q => q.s === s0 && q.t === "");
+      list.children[idx]?.querySelector("input")?.focus();
+    } }),
+    list,
+  ].filter(Boolean);
+}
+
+function renderCueColors() {
+  document.querySelectorAll(".cue-sp").forEach(sel => {
+    sel.style.background = state.subs.colors[Number(sel.value)] || "#fff";
+  });
 }
 
 function textPanel() {

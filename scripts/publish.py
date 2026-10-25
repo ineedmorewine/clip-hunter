@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,6 +73,11 @@ def publish(folder: Path) -> str | None:
     if proc.returncode != 0:
         print(f"publish failed for {folder.name}: {proc.stderr[-500:]}")
         return None
+    subs = folder / "subs"
+    if subs.is_dir():  # committed to the repo so the editor can fetch them (release assets have no CORS)
+        dest = Path(__file__).resolve().parent.parent / "subs" / tag
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(subs, dest)
     print(f"published {tag} ({len(files)} videos)")
     return tag
 

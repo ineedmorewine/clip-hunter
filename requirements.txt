@@ -5,3 +5,6 @@ pydantic>=2
 faster-whisper>=1.1
 ai-edge-litert
 numpy
+librosa
+webrtcvad-wheels
+scikit-learn
