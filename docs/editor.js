@@ -50,7 +50,7 @@ function brandSvgs(name, b) {
       ${kMark(160, 52, 66, KICK)}${t(245, 106, 58, name, "#f3ead8")}`),
     // 7: speech bubble
     svg(560, 240, `<path d="M30 10h500a20 20 0 0 1 20 20v140a20 20 0 0 1 -20 20h-330l-60 45v-45h-110a20 20 0 0 1 -20 -20v-140a20 20 0 0 1 20 -20z" fill="#fff" stroke="#000" stroke-width="8"/>
-      ${kMark(40, 45, 100, "#000")}${t(165, 92, 50, name, "#000")}${t(165, 148, 34, b.bubble, "#1a1a1a", "start", 700)}`),
+      ${kMark(40, 45, 100, "#000")}${t(165, 92, 50, name, "#000")}${t(165, 146, 28, b.bubble, "#1a1a1a", "start", 700)}`),
     // 8: neon outline
     svg(600, 170, `<rect x="10" y="10" width="580" height="150" rx="26" fill="none" stroke="${KICK}" stroke-width="10"/>
       <rect x="10" y="10" width="580" height="150" rx="26" fill="none" stroke="#c8ffb0" stroke-width="3"/>
@@ -598,7 +598,7 @@ function stickerPanel() {
     el("h4", { text: S.giphy }), giphyBlock, chips, results,
     el("h4", { text: S.uploadImage }),
     fileButton(S.uploadImage, "image/*", f => { saveMedia(f); addSticker(f, f.name); }),
-  ];
+  ].filter(Boolean);
 }
 
 function giphyKeyForm() {
