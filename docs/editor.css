@@ -125,3 +125,7 @@
 .cue select { border: 0; border-radius: 6px; padding: 4px 6px; color: #111; font: inherit; font-weight: 700; }
 
 [hidden] { display: none !important; }
+
+.brand-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.brand-grid button { aspect-ratio: 16 / 9; background: repeating-conic-gradient(#2a2724 0 25%, #1f1d1a 0 50%) 0 0 / 16px 16px; }
+.fx-select { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font: inherit; }

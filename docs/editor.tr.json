@@ -108,5 +108,28 @@
   "color": "Renk",
   "inspectorEmpty": "Zaman çizelgesinde bir parçaya tıkla: buradan ayarlarını değiştirirsin. Boş yere tıklayıp sürüklersen videoda gezinirsin.",
   "inspectorBase": "Kenarlarından sürükleyerek kısalt. Ortasından kesmek için oynatma çizgisini getir, ✂ Böl'e bas, istemediğin parçayı seçip Sil.",
-  "inspectorDrag": "Ortasından tutup sürükle: zamanı değişir. Kenarlarından çek: kısalır ya da uzar."
+  "inspectorDrag": "Ortasından tutup sürükle: zamanı değişir. Kenarlarından çek: kısalır ya da uzar.",
+  "brandTitle": "Kanal sticker'ları",
+  "brand": {
+    "name": "lunverra",
+    "follow": "takip et",
+    "followCaps": "TAKİP ET",
+    "liveOn": "Kick'te canlı",
+    "bubble": "takip etmeyi unutma",
+    "live": "CANLI"
+  },
+  "effect": "Efekt",
+  "effects": {
+    "none": "Yok",
+    "pop": "Patlayarak gel",
+    "fade": "Belir / kaybol",
+    "slideL": "Soldan kay",
+    "slideR": "Sağdan kay",
+    "drop": "Yukarıdan düş",
+    "pulse": "Nabız",
+    "shake": "Titre",
+    "float": "Süzül",
+    "spin": "Dön",
+    "wiggle": "Sallan"
+  }
 }

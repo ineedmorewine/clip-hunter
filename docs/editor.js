@@ -14,6 +14,57 @@ const EMOJI = [
   "1f64f", "1f44b", "1f90c", "1f60e", "1f973", "1f629", "1f970", "1f92e", "1f910", "1f44d",
 ];
 
+// Channel stickers: Kick-style "K" mark + channel name, drawn as SVG (no webfonts inside SVG images).
+const K_PATH = "M0 0h3v2h1v-1h1v-1h3v2h-1v1h-1v2h1v1h1v2h-3v-1h-1v-1h-1v2h-3z";
+const KICK = "#53fc18", GOLD = "#d6a84e";
+const FONT = "Arial Black, Arial, Helvetica, sans-serif";
+function kMark(x, y, size, fill) {
+  return `<g transform="translate(${x} ${y}) scale(${size / 8})"><path d="${K_PATH}" fill="${fill}"/></g>`;
+}
+function brandSvgs(name, b) {
+  const t = (x, y, size, txt, fill = "#fff", anchor = "start", weight = 900) =>
+    `<text x="${x}" y="${y}" font-family="${FONT}" font-weight="${weight}" font-size="${size}" fill="${fill}" text-anchor="${anchor}">${txt}</text>`;
+  const svg = (w, h, body) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`;
+  return [
+    // 1: classic – black K tile + green-edged name pill with follow tag
+    svg(620, 220, `<rect x="250" y="40" width="350" height="140" rx="34" fill="#000" stroke="${KICK}" stroke-width="8"/>
+      <rect x="10" y="10" width="220" height="200" rx="52" fill="#000"/>${kMark(55, 45, 130, KICK)}
+      ${t(425, 110, 64, name, "#fff", "middle")}
+      <rect x="345" y="128" width="160" height="38" rx="10" fill="#222"/>${t(425, 156, 26, `♥ ${b.follow}`, "#fff", "middle", 700)}`),
+    // 2: green pill
+    svg(600, 160, `<rect x="5" y="5" width="590" height="150" rx="75" fill="${KICK}"/>
+      <circle cx="80" cy="80" r="58" fill="#000"/>${kMark(42, 42, 76, KICK)}${t(165, 102, 66, name, "#000")}`),
+    // 3: dark minimal with url
+    svg(640, 140, `<rect x="4" y="4" width="632" height="132" rx="22" fill="#0d0d0d" stroke="#2a2a2a" stroke-width="4"/>
+      ${kMark(30, 30, 80, KICK)}${t(135, 72, 48, name)}${t(137, 112, 28, `kick.com/${name}`, KICK, "start", 700)}`),
+    // 4: follow button
+    svg(560, 200, `<rect x="10" y="10" width="540" height="180" rx="30" fill="#000"/>
+      ${kMark(40, 45, 110, KICK)}${t(175, 92, 54, name)}
+      <rect x="175" y="112" width="250" height="56" rx="14" fill="${KICK}"/>${t(300, 150, 30, `+ ${b.followCaps}`, "#000", "middle")}`),
+    // 5: stacked badge
+    svg(360, 380, `<rect x="10" y="10" width="340" height="360" rx="44" fill="#000" stroke="${KICK}" stroke-width="8"/>
+      ${kMark(110, 40, 140, KICK)}${t(180, 260, 54, name, "#fff", "middle")}${t(180, 322, 30, b.liveOn, KICK, "middle", 700)}`),
+    // 6: gold crescent (channel brand colours)
+    svg(620, 170, `<rect x="6" y="6" width="608" height="158" rx="30" fill="#121110" stroke="${GOLD}" stroke-width="6"/>
+      <path d="M95 30a55 55 0 1 0 40 95a44 44 0 1 1 -40 -95z" fill="${GOLD}"/>
+      ${kMark(160, 52, 66, KICK)}${t(245, 106, 58, name, "#f3ead8")}`),
+    // 7: speech bubble
+    svg(560, 240, `<path d="M30 10h500a20 20 0 0 1 20 20v140a20 20 0 0 1 -20 20h-330l-60 45v-45h-110a20 20 0 0 1 -20 -20v-140a20 20 0 0 1 20 -20z" fill="#fff" stroke="#000" stroke-width="8"/>
+      ${kMark(40, 45, 100, "#000")}${t(165, 92, 50, name, "#000")}${t(165, 148, 34, b.bubble, "#1a1a1a", "start", 700)}`),
+    // 8: neon outline
+    svg(600, 170, `<rect x="10" y="10" width="580" height="150" rx="26" fill="none" stroke="${KICK}" stroke-width="10"/>
+      <rect x="10" y="10" width="580" height="150" rx="26" fill="none" stroke="#c8ffb0" stroke-width="3"/>
+      ${kMark(40, 40, 90, KICK)}${t(155, 108, 66, name, KICK)}`),
+    // 9: small corner tag
+    svg(420, 110, `<rect x="4" y="4" width="412" height="102" rx="51" fill="rgba(0,0,0,.75)"/>
+      <circle cx="55" cy="55" r="38" fill="${KICK}"/>${kMark(32, 32, 46, "#000")}${t(110, 72, 44, name)}`),
+    // 10: "live" red dot
+    svg(600, 170, `<rect x="6" y="6" width="588" height="158" rx="22" fill="#000"/>
+      ${kMark(32, 42, 86, KICK)}${t(140, 92, 56, name)}
+      <circle cx="152" cy="128" r="11" fill="#ff3b3b"/>${t(172, 140, 32, b.live, "#ff8a8a", "start", 700)}`),
+  ];
+}
+
 let S = {};
 const state = {
   base: null,      // { video, name, duration, in, out, volume, audioNode, gain }
@@ -186,6 +237,32 @@ function drawSubs(c, t) {
   });
 }
 
+// Simple animations for stickers/text: an entrance, a loop, or both.
+const EFFECTS = ["none", "pop", "fade", "slideL", "slideR", "drop", "pulse", "shake", "float", "spin", "wiggle"];
+function applyEffect(c, o, local) {
+  const fx = o.fx || "none";
+  if (fx === "none") return;
+  const cx = o.x * W, cy = o.y * H;
+  const enter = Math.min(1, local / 0.35), ease = 1 - Math.pow(1 - enter, 3);
+  const left = o.dur - local, exit = Math.min(1, left / 0.25);
+  let sc = 1, dx = 0, dy = 0, rot = 0, alpha = 1;
+  if (fx === "pop") { sc = enter < 1 ? 0.2 + 1.0 * ease + Math.sin(enter * Math.PI) * 0.15 : 1; sc *= 0.6 + 0.4 * exit; alpha = exit; }
+  if (fx === "fade") alpha = Math.min(enter, exit);
+  if (fx === "slideL") { dx = -(1 - ease) * W; alpha = exit; }
+  if (fx === "slideR") { dx = (1 - ease) * W; alpha = exit; }
+  if (fx === "drop") { const b = enter < 1 ? (1 - ease) : 0; dy = -b * H * 0.4 + Math.abs(Math.sin(local * 9)) * 30 * Math.max(0, 1 - local / 0.9); alpha = exit; }
+  if (fx === "pulse") sc = 1 + Math.sin(local * 6) * 0.07;
+  if (fx === "shake") { dx = Math.sin(local * 55) * 14; rot = Math.sin(local * 40) * 0.04; }
+  if (fx === "float") dy = Math.sin(local * 2.6) * 22;
+  if (fx === "spin") rot = local * 2 * Math.PI * 0.6;
+  if (fx === "wiggle") rot = Math.sin(local * 7) * 0.12;
+  c.globalAlpha = Math.max(0, Math.min(1, alpha));
+  c.translate(cx + dx, cy + dy);
+  c.rotate(rot);
+  c.scale(sc, sc);
+  c.translate(-cx, -cy);
+}
+
 function draw() {
   const c = $("canvas").getContext("2d");
   c.fillStyle = "#000";
@@ -199,6 +276,8 @@ function draw() {
   drawSubs(c, t);
   for (const o of state.overlays) {
     if (t < o.start || t >= o.start + o.dur) continue;
+    c.save();
+    applyEffect(c, o, t - o.start);
     if (o.kind === "sticker") {
       const bmp = stickerFrame(o, t - o.start);
       const w = o.w * W, h = w * (bmp.height / bmp.width);
@@ -218,6 +297,7 @@ function draw() {
       const wMax = Math.max(...lines.map(l => c.measureText(l).width));
       o.box = [o.x * W - wMax / 2, o.y * H - lines.length * size * 0.6, wMax, lines.length * size * 1.2];
     }
+    c.restore();
     if (state.selected === o.id && !state.exporting) {
       c.strokeStyle = "#d6a84e"; c.lineWidth = 6; c.setLineDash([18, 12]);
       c.strokeRect(...o.box); c.setLineDash([]);
@@ -335,6 +415,12 @@ async function exportVideo() {
 // ---------- loading media ----------
 
 async function decodeImage(blob) {
+  if (blob.type === "image/svg+xml") {
+    const img = new Image();
+    img.src = URL.createObjectURL(blob);
+    await img.decode();
+    return [{ bmp: await createImageBitmap(img, { resizeWidth: img.width * 2, resizeHeight: img.height * 2 }), ms: 100 }];
+  }
   // Animated GIF/WebP -> frames with durations; static images -> one frame.
   if ("ImageDecoder" in window && /gif|webp|png|apng/.test(blob.type)) {
     try {
@@ -357,7 +443,7 @@ async function addSticker(source, label) {
   try {
     const blob = source instanceof Blob ? source : await (await fetch(source)).blob();
     const frames = await decodeImage(blob);
-    const o = { id: nextId++, kind: "sticker", label, start: state.t, dur: 2.5, x: 0.5, y: 0.3, w: 0.4, frames,
+    const o = { id: nextId++, kind: "sticker", label, start: state.t, dur: 2.5, x: 0.5, y: 0.3, w: 0.4, frames, fx: "none",
                 loopMs: frames.reduce((s, f) => s + f.ms, 0) };
     state.overlays.push(o); state.selected = o.id;
     renderTimeline(); draw();
@@ -368,7 +454,7 @@ async function addSticker(source, label) {
 
 function addText(text) {
   if (!text.trim()) return;
-  const o = { id: nextId++, kind: "text", label: text, text, start: state.t, dur: 3, x: 0.5, y: 0.18, w: 0.22, color: "#ffffff" };
+  const o = { id: nextId++, kind: "text", label: text, text, start: state.t, dur: 3, x: 0.5, y: 0.18, w: 0.22, color: "#ffffff", fx: "none" };
   state.overlays.push(o); state.selected = o.id;
   renderTimeline(); draw();
 }
@@ -501,7 +587,13 @@ function stickerPanel() {
   const chips = load(GIPHY_KEY) ? el("div", { class: "chips" }, S.giphyChips.map(word =>
     el("button", { type: "button", text: word, onclick: () => { q.value = word; giphyBlock.requestSubmit(); } }))) : null;
 
+  const brand = el("div", { class: "sticker-grid brand-grid" }, brandSvgs(S.brand.name, S.brand).map((svg, i) => {
+    const blob = new Blob([svg], { type: "image/svg+xml" });
+    return el("button", { type: "button", title: `${S.brandTitle} ${i + 1}`, onclick: () => addSticker(blob, `${S.brandTitle} ${i + 1}`) },
+      [el("img", { src: URL.createObjectURL(blob), alt: "" })]);
+  }));
   return [
+    el("h4", { text: S.brandTitle }), brand,
     el("h4", { text: S.emoji }), emojiGrid,
     el("h4", { text: S.giphy }), giphyBlock, chips, results,
     el("h4", { text: S.uploadImage }),
@@ -944,6 +1036,12 @@ function slider(label, value, min, max, step, onInput) {
     el("input", { type: "range", min, max, step, value: String(value), oninput: e => onInput(Number(e.target.value)) })]);
 }
 
+function effectSelect(item) {
+  return el("label", { class: "insp-field" }, [el("span", { text: S.effect }),
+    el("select", { class: "fx-select", onchange: e => { item.fx = e.target.value; seek(item.start); if (!state.playing) play(); } },
+      EFFECTS.map(fx => el("option", { value: fx, selected: (item.fx || "none") === fx ? "" : null, text: S.effects[fx] })))]);
+}
+
 function renderInspector() {
   const box = $("tl-inspector");
   const item = itemById(state.selected);
@@ -957,6 +1055,7 @@ function renderInspector() {
   } else if (item.kind === "sticker") {
     title = S.kindSticker;
     fields.push(slider(S.size, item.w, 0.05, 1.2, 0.01, v => { item.w = v; draw(); }));
+    fields.push(effectSelect(item));
   } else if (item.kind === "text") {
     title = S.kindText;
     fields.push(el("label", { class: "insp-field wide" }, [el("span", { text: S.kindText }),
@@ -964,6 +1063,7 @@ function renderInspector() {
     fields.push(slider(S.size, item.w, 0.08, 0.5, 0.01, v => { item.w = v; draw(); }));
     fields.push(el("label", { class: "insp-field" }, [el("span", { text: S.color }),
       el("input", { type: "color", value: item.color, oninput: e => { item.color = e.target.value; draw(); } })]));
+    fields.push(effectSelect(item));
   } else if (item.kind === "sound") {
     title = `${S.kindSound} · ${item.label}`;
     fields.push(slider(S.volume, item.volume, 0, 1.5, 0.05, v => { item.volume = v; }));
