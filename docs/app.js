@@ -299,7 +299,10 @@ async function main() {
 
   const bar = document.getElementById("refresh-bar");
   bar.append(
-    el("button", { id: "refresh-btn", class: "btn", type: "button", onclick: startRefresh, text: `↻ ${S.refresh}` }),
+    el("div", { class: "btn-row" }, [
+      el("a", { class: "btn ghost", href: "editor.html", text: `✎ ${S.openEditor}` }),
+      el("button", { id: "refresh-btn", class: "btn", type: "button", onclick: startRefresh, text: `↻ ${S.refresh}` }),
+    ]),
     el("span", { id: "refresh-status", class: "refresh-status" }),
   );
   document.getElementById("token-slot").append(tokenPanel());

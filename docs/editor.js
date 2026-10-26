@@ -58,6 +58,27 @@ function brandSvgs(name, b) {
     // 9: small corner tag
     svg(420, 110, `<rect x="4" y="4" width="412" height="102" rx="51" fill="rgba(0,0,0,.75)"/>
       <circle cx="55" cy="55" r="38" fill="${KICK}"/>${kMark(32, 32, 46, "#000")}${t(110, 72, 44, name)}`),
+    // 11: TikTok-style double shadow name
+    svg(620, 170, `${t(318, 118, 92, name, "#ff2d6f", "middle")}${t(310, 112, 92, name, "#25f4ee", "middle")}
+      ${t(314, 115, 92, name, "#fff", "middle")}${kMark(20, 120, 40, KICK)}${t(70, 157, 30, `kick.com/${name}`, KICK, "start", 700)}`),
+    // 12: green arrow "buraya" pointer
+    svg(600, 200, `<path d="M10 40h420l60-30v180l-60-30h-420z" fill="${KICK}" stroke="#000" stroke-width="8"/>
+      ${kMark(36, 66, 70, "#000")}${t(126, 120, 56, name, "#000")}${t(126, 158, 26, b.hereLive, "#000", "start", 700)}`),
+    // 13: tilted sticker with white border (cut-out look)
+    svg(560, 260, `<g transform="rotate(-7 280 130)"><rect x="40" y="55" width="480" height="150" rx="24" fill="#fff"/>
+      <rect x="54" y="69" width="452" height="122" rx="16" fill="${KICK}"/>${kMark(76, 92, 76, "#000")}${t(176, 152, 60, name, "#000")}</g>`),
+    // 14: gamer tag frame with corner brackets
+    svg(600, 180, `<rect x="20" y="20" width="560" height="140" fill="#0b0b0b"/>
+      <path d="M10 60V10h50M540 10h50v50M590 120v50h-50M60 170H10v-50" fill="none" stroke="${KICK}" stroke-width="10"/>
+      ${kMark(50, 50, 80, KICK)}${t(155, 103, 54, name)}${t(157, 140, 24, b.gg, "#9aa0a6", "start", 700)}`),
+    // 15: gold + green moon night badge
+    svg(380, 380, `<circle cx="190" cy="190" r="180" fill="#121110" stroke="${GOLD}" stroke-width="8"/>
+      <path d="M150 60a85 85 0 1 0 75 145a68 68 0 1 1 -75 -145z" fill="${GOLD}"/>${kMark(175, 105, 70, KICK)}
+      ${t(190, 300, 46, name, "#f3ead8", "middle")}${t(190, 340, 22, b.nightLive, GOLD, "middle", 700)}`),
+    // 16: subscribe-like bell row
+    svg(640, 150, `<rect x="5" y="5" width="630" height="140" rx="70" fill="#fff"/>
+      <circle cx="75" cy="75" r="56" fill="#000"/>${kMark(43, 43, 64, KICK)}${t(150, 92, 50, name, "#000")}
+      <rect x="400" y="35" width="210" height="80" rx="40" fill="${KICK}"/>${t(505, 88, 30, b.followCaps, "#000", "middle")}`),
     // 10: "live" red dot
     svg(600, 170, `<rect x="6" y="6" width="588" height="158" rx="22" fill="#000"/>
       ${kMark(32, 42, 86, KICK)}${t(140, 92, 56, name)}
@@ -481,6 +502,77 @@ function addInsert(kind, file) {
   }
   state.inserts.push(ins); state.selected = ins.id;
   renderTimeline(); draw();
+}
+
+// ---------- pick a ready clip from the site (no download) ----------
+
+const MARK = "<!-- clip-hunter:";
+async function loadPicker() {
+  const box = $("picker");
+  let vods = [], media = [];
+  try {
+    const [rels, idx] = await Promise.all([
+      fetch(`https://api.github.com/repos/${REPO}/releases?per_page=50`).then(r => r.json()),
+      fetch("media/index.json", { cache: "no-store" }).then(r => (r.ok ? r.json() : { tags: [] })).catch(() => ({ tags: [] })),
+    ]);
+    media = idx.tags || [];
+    vods = rels.map(rel => {
+      const body = rel.body || "", at = body.indexOf(MARK);
+      if (at < 0) return null;
+      try {
+        const meta = JSON.parse(body.slice(at + MARK.length, body.indexOf("-->", at)).trim());
+        const assets = Object.fromEntries(rel.assets.map(a => [a.name, a.browser_download_url]));
+        return { ...meta, tag: rel.tag_name, assets };
+      } catch { return null; }
+    }).filter(Boolean).sort((a, b) => b.tag.localeCompare(a.tag));
+  } catch {
+    box.replaceChildren(el("p", { class: "muted", text: S.pickNone }));
+    return;
+  }
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (params.get("tag") && params.get("name") && media.includes(params.get("tag"))) {
+    pickClip(params.get("tag"), params.get("name"));
+    return;
+  }
+  const detail = el("div", { class: "pick-clips" });
+  const showVod = v => {
+    const ready = media.includes(v.tag);
+    const files = [...(v.has_montage ? [{ file: "fragman.mp4", label: S.trailer }] : []),
+                   ...v.clips.map(c => ({ file: c.file, label: `${c.start_ts} · ${c.why || ""}` }))];
+    detail.replaceChildren(
+      el("h3", { text: `${v.date} · ${v.title}` }),
+      ready ? null : el("p", { class: "muted small", text: S.pickOld }),
+      el("div", { class: "pick-grid" }, files.map(f => el("button", {
+        type: "button", class: ready ? "pick-clip" : "pick-clip off", title: f.label,
+        onclick: () => (ready ? pickClip(v.tag, f.file) : window.open(v.assets[f.file], "_blank")),
+      }, [
+        el("video", { src: `${ready ? `media/${v.tag}/${f.file}` : v.assets[f.file]}#t=1`, muted: "", preload: "metadata", playsinline: "" }),
+        el("span", { text: f.label }),
+      ]))),
+    );
+    detail.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  box.replaceChildren(
+    el("h2", { text: S.pickTitle }), el("p", { class: "muted", text: S.pickHelp }),
+    el("div", { class: "pick-vods" }, vods.map(v => el("button", {
+      type: "button", class: media.includes(v.tag) ? "pick-vod" : "pick-vod off", onclick: () => showVod(v),
+    }, [el("b", { text: v.title }), el("span", { text: `${v.date} · ${fmt(S.clipsCount, { n: v.clips.length })}` })]))),
+    detail,
+    el("p", { class: "muted pick-or", text: S.pickOr }),
+  );
+}
+
+async function pickClip(tag, name) {
+  $("picker").replaceChildren(el("p", { class: "muted", text: S.pickLoading }));
+  try {
+    const res = await fetch(`media/${tag}/${name}`);
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    history.replaceState(null, "", `#${new URLSearchParams({ name, tag })}`);
+    openBase(new File([blob], name, { type: "video/mp4" }));
+  } catch {
+    $("picker").replaceChildren(el("p", { class: "muted", text: S.pickFailed }));
+  }
 }
 
 function openBase(file) {
@@ -1116,6 +1208,7 @@ async function main() {
   });
 
   setupCanvas();
+  loadPicker();
   renderToolbar();
   renderTabs();
   renderPanel();

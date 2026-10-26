@@ -116,7 +116,10 @@
     "followCaps": "TAKİP ET",
     "liveOn": "Kick'te canlı",
     "bubble": "takip etmeyi unutma",
-    "live": "CANLI"
+    "live": "CANLI",
+    "hereLive": "canlı yayın burada",
+    "gg": "GG · Kick'te canlı",
+    "nightLive": "gece yayını"
   },
   "effect": "Efekt",
   "effects": {
@@ -131,5 +134,14 @@
     "float": "Süzül",
     "spin": "Dön",
     "wiggle": "Sallan"
-  }
+  },
+  "pickTitle": "Hazır kliplerden seç",
+  "pickHelp": "Yayına tıkla, sonra düzenlemek istediğin klibi seç. İndirmene gerek yok.",
+  "pickOld": "Bu yayın sitede doğrudan açılamıyor (eski). Klibi indirip aşağıdan yükle.",
+  "pickLoading": "Klip yükleniyor…",
+  "pickFailed": "Klip yüklenemedi; indirip yükleyebilirsin.",
+  "pickOr": "ya da bilgisayarından aç",
+  "trailer": "Fragman",
+  "clipsCount": "{n} klip",
+  "pickNone": "Yayın listesi alınamadı."
 }

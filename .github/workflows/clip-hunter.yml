@@ -21,6 +21,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write
 
 concurrency:
   group: clip-hunter
@@ -113,3 +114,9 @@ jobs:
           path: output/
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Refresh the site's editor media
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run site.yml --ref main || true

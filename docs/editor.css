@@ -129,3 +129,20 @@
 .brand-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 .brand-grid button { aspect-ratio: 16 / 9; background: repeating-conic-gradient(#2a2724 0 25%, #1f1d1a 0 50%) 0 0 / 16px 16px; }
 .fx-select { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font: inherit; }
+
+.open-screen { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 32px 16px 60px; }
+.picker { width: 100%; max-width: 1100px; }
+.picker h2 { margin: 0 0 6px; font: 600 24px/1.3 "Fraunces", Georgia, serif; }
+.picker h3 { margin: 22px 0 10px; font-size: 16px; }
+.pick-vods { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.pick-vod { text-align: left; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; font: inherit; display: flex; flex-direction: column; gap: 4px; }
+.pick-vod:hover { border-color: var(--accent); }
+.pick-vod b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-vod span { font-size: 12px; color: var(--muted); }
+.pick-vod.off, .pick-clip.off { opacity: .55; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.pick-clip { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px; cursor: pointer; color: var(--text); font: inherit; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.pick-clip:hover { border-color: var(--accent); }
+.pick-clip video { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px; background: #000; pointer-events: none; }
+.pick-clip span { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pick-or { text-align: center; margin: 18px 0 0; }
