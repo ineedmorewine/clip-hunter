@@ -461,6 +461,7 @@ async function decodeImage(blob) {
 }
 
 async function addSticker(source, label) {
+  pushUndo();
   try {
     const blob = source instanceof Blob ? source : await (await fetch(source)).blob();
     const frames = await decodeImage(blob);
@@ -474,6 +475,7 @@ async function addSticker(source, label) {
 }
 
 function addText(text) {
+  pushUndo();
   if (!text.trim()) return;
   const o = { id: nextId++, kind: "text", label: text, text, start: state.t, dur: 3, x: 0.5, y: 0.18, w: 0.22, color: "#ffffff", fx: "none" };
   state.overlays.push(o); state.selected = o.id;
@@ -481,6 +483,7 @@ function addText(text) {
 }
 
 async function addSound(source, name, credit = "") {
+  pushUndo();
   const buf = source instanceof Blob ? await source.arrayBuffer() : await (await fetch(source)).arrayBuffer();
   const buffer = await ctx.decodeAudioData(buf);
   state.sounds.push({ id: nextId++, kind: "sound", label: name, start: state.t, buffer, offset: 0,
@@ -490,6 +493,7 @@ async function addSound(source, name, credit = "") {
 }
 
 function addInsert(kind, file) {
+  pushUndo();
   const at = baseTimeAt(state.t);
   const ins = { id: nextId++, kind, at, dur: 2, name: file?.name || S.kindInsertBlack, volume: 1 };
   if (kind === "video") {
@@ -1029,11 +1033,17 @@ function startDrag(e, id, mode) {
   state.selected = id;
   const item = itemById(id);
   if (!item) return;
+  pushUndo();
   const x0 = e.clientX;
+  const inner = $("tl-inner").getBoundingClientRect();
+  const clickT = Math.max(0, (e.clientX - inner.left - LABEL_W) / pps);
+  let moved = false;
   const snap = item.kind === "base" ? [...state.base.ranges[item.ri]]
     : { start: item.start, dur: item.dur, at: item.at, offset: item.offset };
   const r = state.base.ranges;
   const move = ev => {
+    if (Math.abs(ev.clientX - x0) < 3 && !moved) return;
+    moved = true;
     const d = (ev.clientX - x0) / pps;
     if (item.kind === "base") {
       const prevEnd = item.ri > 0 ? r[item.ri - 1][1] : 0;
@@ -1060,12 +1070,91 @@ function startDrag(e, id, mode) {
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", () => {
     window.removeEventListener("pointermove", move);
-    if (state.t > total()) seek(total());
+    if (!moved) { undoStack.pop(); seek(Math.min(clickT, total())); }
+    else if (state.t > total()) seek(total());
+    renderTimeline();
   }, { once: true });
   renderTimeline(); draw();
 }
 
+const undoStack = [], redoStack = [];
+function snapshot() {
+  return { ranges: state.base.ranges.map(r => [...r]),
+    overlays: state.overlays.map(o => ({ ...o })), sounds: state.sounds.map(o => ({ ...o })),
+    inserts: state.inserts.map(o => ({ ...o })), cues: state.subs.cues.map(q => ({ ...q })) };
+}
+function restore(sn) {
+  state.base.ranges = sn.ranges; state.overlays = sn.overlays; state.sounds = sn.sounds;
+  state.inserts = sn.inserts; state.subs.cues = sn.cues;
+  if (!itemById(state.selected)) state.selected = null;
+  seek(Math.min(state.t, total())); renderTimeline(); if (currentTab === "Subs") renderPanel();
+}
+function pushUndo() { if (!state.base) return; undoStack.push(snapshot()); if (undoStack.length > 60) undoStack.shift(); redoStack.length = 0; }
+function undo() { if (!undoStack.length) return toast(S.nothingToUndo); redoStack.push(snapshot()); restore(undoStack.pop()); }
+function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+
+let toastTimer = 0;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 2600);
+}
+
+// With nothing selected, tools act on whatever sits under the playhead (top-most first).
+function targetItem() {
+  const sel = itemById(state.selected);
+  if (sel) return [state.selected, sel];
+  const t = state.t;
+  const hit = [...state.overlays].reverse().find(o => t >= o.start && t < o.start + o.dur)
+    || state.sounds.find(o => t >= o.start && t < o.start + o.dur);
+  if (hit) return [hit.id, hit];
+  const sg = segAt(t);
+  if (sg?.type === "base") return [`base:${sg.ri}`, itemById(`base:${sg.ri}`)];
+  if (sg?.type === "insert") return [sg.ins.id, sg.ins];
+  return [null, null];
+}
+
+// Trim the target's start or end to the playhead (CapCut's "trim left/right").
+function trimTo(side) {
+  const [id, item] = targetItem();
+  if (!item) return toast(S.selectFirst);
+  const t = state.t;
+  pushUndo();
+  if (item.kind === "base") {
+    const rr = state.base.ranges[item.ri], bt = baseTimeAt(t);
+    if (bt <= rr[0] + 0.1 || bt >= rr[1] - 0.1) { undoStack.pop(); return toast(S.playheadOutside); }
+    if (side === "l") rr[0] = bt; else rr[1] = bt;
+    seek(side === "l" ? outTimeOf(bt + 0.01) ?? 0 : t);
+  } else if (item.start !== undefined) {
+    if (t <= item.start + 0.05 || t >= item.start + item.dur - 0.05) { undoStack.pop(); return toast(S.playheadOutside); }
+    if (side === "l") {
+      const cut = t - item.start;
+      if (item.kind === "sound") item.offset += cut;
+      item.start = t; item.dur -= cut;
+    } else item.dur = t - item.start;
+  } else if (side === "r" && item.dur !== undefined) {
+    const sg = segments().find(x => x.type === "insert" && x.ins === item);
+    const cut = t - sg.outStart;
+    if (cut <= 0.1 || cut >= item.dur) { undoStack.pop(); return toast(S.playheadOutside); }
+    item.dur = cut;
+  } else { undoStack.pop(); return toast(S.cantDoThat); }
+  state.selected = id;
+  renderTimeline(); draw();
+}
+
 function splitSelected() {
+  const [tid] = targetItem();
+  if (!tid) return toast(S.selectFirst);
+  state.selected = tid;
+  pushUndo();
+  const before = JSON.stringify(state.base.ranges) + state.overlays.length + state.sounds.length;
+  splitCore();
+  if (JSON.stringify(state.base.ranges) + state.overlays.length + state.sounds.length === before) {
+    undoStack.pop(); toast(S.playheadOutside);
+  }
+}
+
+function splitCore() {
   const id = state.selected;
   const item = itemById(id);
   const t = state.t;
@@ -1088,7 +1177,8 @@ function splitSelected() {
 
 function duplicateSelected() {
   const item = itemById(state.selected);
-  if (!item || item.kind === "base" || item.start === undefined) return;
+  if (!item || item.kind === "base" || item.start === undefined) return toast(S.duplicateHint);
+  pushUndo();
   const copy = { ...item, id: nextId++, start: item.start + item.dur };
   listOf(item).push(copy);
   state.selected = copy.id;
@@ -1097,9 +1187,10 @@ function duplicateSelected() {
 
 function deleteSelected() {
   const item = itemById(state.selected);
-  if (!item) return;
+  if (!item) return toast(S.selectFirst);
+  pushUndo();
   if (item.kind === "base") {
-    if (state.base.ranges.length < 2) return; // keep at least one piece of the clip
+    if (state.base.ranges.length < 2) { undoStack.pop(); return toast(S.cantDeleteLast); }
     state.base.ranges.splice(item.ri, 1);
   } else {
     const list = listOf(item);
@@ -1114,7 +1205,12 @@ function renderToolbar() {
   const btn = (icon, label, fn, title) => el("button", { type: "button", class: "tool", title: title || label, onclick: fn },
     [el("b", { text: icon }), el("span", { text: label })]);
   $("tl-toolbar").replaceChildren(
+    btn("↶", "", undo, S.undo),
+    btn("↷", "", redo, S.redo),
+    el("span", { class: "tool-gap" }),
     btn("✂", S.toolSplit, splitSelected, S.toolSplitHint),
+    btn("⇤", S.trimLeft, () => trimTo("l"), S.trimLeftHint),
+    btn("⇥", S.trimRight, () => trimTo("r"), S.trimRightHint),
     btn("⧉", S.toolDuplicate, duplicateSelected),
     btn("🗑", S.toolDelete, deleteSelected),
     el("span", { class: "tool-gap" }),
@@ -1164,6 +1260,13 @@ function renderInspector() {
     title = { video: S.kindInsertVideo, image: S.kindInsertImage, black: S.kindInsertBlack }[item.kind];
     if (item.kind === "video") fields.push(slider(S.volume, item.volume, 0, 1.5, 0.05, v => { item.volume = v; item.gain.gain.value = v; }));
   }
+  if (item.start !== undefined) {
+    const num = (label, val, set) => el("label", { class: "insp-field" }, [el("span", { text: label }),
+      el("input", { type: "number", step: "0.1", min: "0", value: (Math.round(val * 10) / 10).toString(), class: "insp-num",
+        onchange: e => { pushUndo(); set(Math.max(0, Number(e.target.value) || 0)); renderTimeline(); draw(); } })]);
+    fields.push(num(S.start, item.start, v => { item.start = v; }));
+    fields.push(num(S.duration, item.dur, v => { item.dur = Math.max(0.2, item.kind === "sound" ? Math.min(v, item.buffer.duration - item.offset) : v); }));
+  }
   if (item.kind !== "base") fields.push(el("p", { class: "muted small", text: S.inspectorDrag }));
   box.replaceChildren(el("b", { class: "insp-title", text: title }), ...fields);
 }
@@ -1204,7 +1307,13 @@ async function main() {
     if (e.target.matches("input, textarea")) return;
     if (e.code === "Space") { e.preventDefault(); state.playing ? pause() : play(); }
     if ((e.key === "Delete" || e.key === "Backspace") && state.selected) { e.preventDefault(); deleteSelected(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
     if (e.key === "s" || e.key === "S") splitSelected();
+    if (e.key === "q" || e.key === "Q") trimTo("l");
+    if (e.key === "w" || e.key === "W") trimTo("r");
+    if (e.key === "ArrowLeft") { e.preventDefault(); seek(state.t - (e.shiftKey ? 1 : 1 / FPS)); }
+    if (e.key === "ArrowRight") { e.preventDefault(); seek(state.t + (e.shiftKey ? 1 : 1 / FPS)); }
   });
 
   setupCanvas();

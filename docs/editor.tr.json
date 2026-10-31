@@ -106,7 +106,7 @@
   "zoomIn": "Yakınlaştır",
   "zoomOut": "Uzaklaştır",
   "color": "Renk",
-  "inspectorEmpty": "Zaman çizelgesinde bir parçaya tıkla: buradan ayarlarını değiştirirsin. Boş yere tıklayıp sürüklersen videoda gezinirsin.",
+  "inspectorEmpty": "Bir parçaya tıkla: seçilir ve sarı çizgi oraya gelir. Sonra ✂ Böl, ⇤ Başı kes, ⇥ Sonu kes ya da 🗑 Sil. Kenarlarından sürükleyerek de kısaltıp uzatabilirsin. Ctrl+Z geri alır.",
   "inspectorBase": "Kenarlarından sürükleyerek kısalt. Ortasından kesmek için oynatma çizgisini getir, ✂ Böl'e bas, istemediğin parçayı seçip Sil.",
   "inspectorDrag": "Ortasından tutup sürükle: zamanı değişir. Kenarlarından çek: kısalır ya da uzar.",
   "brandTitle": "Kanal sticker'ları",
@@ -143,5 +143,17 @@
   "pickOr": "ya da bilgisayarından aç",
   "trailer": "Fragman",
   "clipsCount": "{n} klip",
-  "pickNone": "Yayın listesi alınamadı."
+  "pickNone": "Yayın listesi alınamadı.",
+  "undo": "Geri al (Ctrl+Z)",
+  "redo": "Yinele (Ctrl+Y)",
+  "nothingToUndo": "Geri alınacak bir şey yok.",
+  "trimLeft": "Başı kes",
+  "trimRight": "Sonu kes",
+  "trimLeftHint": "Seçili parçanın (seçili değilse çizginin altındakinin) başını oynatma çizgisine kadar keser (Q)",
+  "trimRightHint": "Seçili parçanın sonunu oynatma çizgisinden itibaren keser (W)",
+  "selectFirst": "Önce zaman çizelgesinde bir parçaya tıkla.",
+  "playheadOutside": "Sarı çizgiyi parçanın üstüne getir, sonra tekrar bas.",
+  "cantDoThat": "Bu parçada bu işlem yapılamıyor.",
+  "cantDeleteLast": "Klibin tek parçası silinemez; önce ✂ Böl ile ayır.",
+  "duplicateHint": "Çoğaltmak için bir sticker, yazı ya da ses seç."
 }
