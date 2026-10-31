@@ -164,7 +164,7 @@ def overlap(a: Candidate, b: Candidate) -> float:
 
 def dedupe(cands: list[Candidate]) -> list[Candidate]:
     kept: list[Candidate] = []
-    for c in sorted(cands, key=lambda c: c.score, reverse=True):
+    for c in sorted(cands, key=lambda c: (c.score, c.kind == "oyun"), reverse=True):
         if all(overlap(c, k) < 0.3 for k in kept):
             kept.append(c)
     return kept
@@ -183,7 +183,7 @@ def clamp(c: Candidate, duration: float) -> Candidate:
 
 # ---------- quota-free analysis ----------
 
-LAUGH_ON, SHOUT_ON, GUN_ON = 0.35, 0.5, 0.4
+LAUGH_ON, SHOUT_ON, GUN_ON = 0.35, 0.5, 0.25
 GUN: list[float] = []  # per-second gunfire probability of the VOD being processed
 
 
@@ -246,10 +246,49 @@ def text_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
         return out
 
     cands, micros = to_cands(analysis.moments, True), to_cands(analysis.montage, False)
+    try:
+        plays = play_candidates(gem, lines, laugh, shout, levels, duration)
+        for c in plays:
+            c.kind = "oyun"
+        cands += plays
+    except Exception as exc:  # the funny clips still go out if this extra pass fails
+        print(f"   ! good-play pass failed: {str(exc)[:160]}")
     for c in cands:
         print(f"   + {fmt_ts(c.start)} ({c.score}/10) {c.why[:90]}")
     print(f"   montage snippets: {len(micros)}")
     return cands, micros
+
+
+def play_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
+                    duration: float) -> list[Candidate]:
+    """Second, dedicated request that looks only for kills / good plays. Cached."""
+    cache_file = CACHE / "plays_v1.json"
+    if cache_file.exists():
+        analysis = Analysis(**json.loads(cache_file.read_text(encoding="utf-8")))
+        print("Good-play analysis: from cache")
+    else:
+        hours = max(duration / 3600, 0.25)
+        template = (ROOT / "prompts" / "find_plays.md").read_text(encoding="utf-8")
+        template = (template.replace("{play_target}", f"{max(2, round(hours * 3))}–{max(3, round(hours * 5))}")
+                    .replace("{duration}", fmt_ts(duration)))
+        text = annotated_transcript(lines, laugh, shout, levels)
+        parts = [text] if len(text) <= 300_000 else [text[:text.rfind("\n", 0, len(text) // 2)],
+                                                     text[text.rfind("\n", 0, len(text) // 2):]]
+        analysis = Analysis(moments=[], montage=[])
+        for part in parts:
+            print(f"Asking Gemini for good plays ({len(part) // 1000}k characters)")
+            analysis.moments += gem.ask([template.replace("{transcript}", part)], Analysis).moments
+        cache_file.write_text(analysis.model_dump_json(), encoding="utf-8")
+    out = []
+    for m in analysis.moments:
+        try:
+            s, e = parse_ts(m.start), parse_ts(m.end)
+        except ValueError:
+            continue
+        if e > s:
+            out.append(Candidate(s, e, int(m.score), m.why, m.quote, kind="oyun"))
+            print(f"   ⚔ {fmt_ts(s)} ({m.score}/10) {m.why[:90]}")
+    return out
 
 
 def laughter_candidates(laugh: list[float], shout: list[float], top: int = 20) -> list[Candidate]:
@@ -571,7 +610,8 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     for c in cands:
         snap(c, lines, duration)
         c.verified = source == "AI"
-    final = [c for c in dedupe(cands) if c.score >= min_score]
+    # Good plays get a slightly lower bar: a clean 2k is worth a clip even if it isn't a 9/10.
+    final = [c for c in dedupe(cands) if c.score >= (min_score - 1 if c.kind == "oyun" else min_score)]
     # Gemini down and nothing usable from laughter alone: leave this VOD for the next run
     # instead of publishing an empty result and marking it done.
     complete = not (gemini_failed and not final)
@@ -579,7 +619,12 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
         print("   ! no clips without Gemini; this VOD will be retried on the next run")
     rows = []
     if complete:
-        final = sorted(final, key=lambda c: c.score, reverse=True)[:max_clips]
+        # Clip count follows stream length (~10 per hour), never a fixed number.
+        cap = max(max_clips, round(duration / 3600 * 10))
+        plays = sorted([c for c in final if c.kind == "oyun"], key=lambda c: c.score, reverse=True)
+        funny = sorted([c for c in final if c.kind != "oyun"], key=lambda c: c.score, reverse=True)
+        keep_plays = plays[:max(1, cap // 3)]  # reserve up to a third of the slots for good plays
+        final = keep_plays + funny[:cap - len(keep_plays)]
         final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
         high_segments = list_segments(high.url)
         for i, c in enumerate(final, 1):
