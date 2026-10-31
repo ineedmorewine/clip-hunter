@@ -293,7 +293,7 @@ document.addEventListener("play", e => {
 }, true);
 
 async function main() {
-  S = await (await fetch("strings.tr.json")).json();
+  S = await (await fetch("strings.tr.json", { cache: "no-cache" })).json();
   document.title = S.pageTitle;
   document.querySelectorAll("[data-s]").forEach(n => { n.textContent = S[n.dataset.s] ?? ""; });
 

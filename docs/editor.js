@@ -1275,7 +1275,7 @@ function renderInspector() {
 // ---------- boot ----------
 
 async function main() {
-  S = await (await fetch("editor.tr.json")).json();
+  S = await (await fetch("editor.tr.json", { cache: "no-cache" })).json();
   document.title = S.pageTitle;
   document.querySelectorAll("[data-s]").forEach(n => { n.textContent = S[n.dataset.s] ?? ""; });
   $("back-link").textContent = `← ${S.back}`;
