@@ -466,11 +466,13 @@ def _ask_chunk(gem: Gemini, template: str, audio: Path, levels: list[float],
         return result.moments
 
 
-def verify(gem: Gemini, v_segments, c: Candidate, duration: float) -> Candidate | None:
-    template = (ROOT / "prompts" / "verify_moment.md").read_text(encoding="utf-8")
+def verify(gem: Gemini, v_segments, c: Candidate, duration: float, play: bool = False) -> Candidate | None:
+    """Watch the actual video for this moment. For good plays the frame is kept sharp
+    (720p) so the kill feed is readable, and the verdict must show the streamer's own kill."""
+    template = (ROOT / "prompts" / ("verify_play.md" if play else "verify_moment.md")).read_text(encoding="utf-8")
     w_start = max(0.0, c.start - VERIFY_PAD)
     w_end = min(duration, c.end + VERIFY_PAD)
-    cache_file = CACHE / f"p2_{int(c.start)}_{int(c.end)}.json"
+    cache_file = CACHE / f"{'play' if play else 'p2'}_{int(c.start)}_{int(c.end)}.json"
     if cache_file.exists():
         v = Verdict(**json.loads(cache_file.read_text(encoding="utf-8")))
         return _apply_verdict(v, c, w_start)
@@ -478,7 +480,7 @@ def verify(gem: Gemini, v_segments, c: Candidate, duration: float) -> Candidate 
     src_start = download_range(v_segments, w_start, w_end, src)
     clip = WORK / f"verify_{int(c.start)}.mp4"
     run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{w_start - src_start:.2f}", "-i", str(src),
-         "-t", str(w_end - w_start), "-vf", "scale=-2:360,fps=2", "-c:v", "libx264", "-preset", "veryfast",
+         "-t", str(w_end - w_start), "-vf", "scale=-2:720,fps=3" if play else "scale=-2:360,fps=2", "-c:v", "libx264", "-preset", "veryfast",
          "-crf", "32", "-ac", "1", "-c:a", "aac", "-b:a", "48k", str(clip)])
     prompt = (template.replace("{start}", fmt_ts(c.start - w_start)[2:])
               .replace("{end}", fmt_ts(c.end - w_start)[2:]).replace("{why}", c.why))
@@ -495,6 +497,7 @@ def verify(gem: Gemini, v_segments, c: Candidate, duration: float) -> Candidate 
 
 def _apply_verdict(v: Verdict, c: Candidate, w_start: float) -> Candidate | None:
     if not v.keep:
+        print(f"   ✗ rejected on video: {v.why[:100]}")
         return None
     try:
         s, e = parse_ts(v.start) + w_start, parse_ts(v.end) + w_start
@@ -623,10 +626,23 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
         cap = max(max_clips, round(duration / 3600 * 10))
         plays = sorted([c for c in final if c.kind == "oyun"], key=lambda c: c.score, reverse=True)
         funny = sorted([c for c in final if c.kind != "oyun"], key=lambda c: c.score, reverse=True)
-        keep_plays = plays[:max(1, cap // 3)]  # reserve up to a third of the slots for good plays
+        high_segments = list_segments(high.url)
+        # The play pass only reads the transcript, which can't tell whose kill it was.
+        # Every play candidate is checked on the video; only confirmed ones are kept.
+        keep_plays: list[Candidate] = []
+        for c in plays:
+            if len(keep_plays) >= max(1, cap // 3):
+                break
+            try:
+                checked = verify(gem, high_segments, c, duration, play=True)
+            except Exception as exc:
+                print(f"   ! play check failed ({str(exc)[:100]}); dropping this play")
+                checked = None
+            if checked and checked.score >= min_score - 1:
+                checked.quote, checked.kind = c.quote, "oyun"
+                keep_plays.append(checked)
         final = keep_plays + funny[:cap - len(keep_plays)]
         final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
-        high_segments = list_segments(high.url)
         for i, c in enumerate(final, 1):
             print(f"Rendering clip {i}/{len(final)} at {fmt_ts(c.start)}")
             path = render(high_segments, c, i)
