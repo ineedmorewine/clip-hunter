@@ -147,4 +147,5 @@ video {
   .stream-title { font-size: 15px; }
   .detail-title { font-size: 22px; }
 }
+.chip.keyword { color: #e7c7f0; border-color: #5d3a66; }
 .chip.play { color: var(--accent); border-color: #5a4a26; }

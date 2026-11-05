@@ -291,6 +291,29 @@ def play_candidates(gem: Gemini, lines: list[Line], laugh, shout, levels,
     return out
 
 
+# The streamer says "klip al" on air to mark a moment; whisper spells it a few ways.
+KEYWORD = re.compile(r"\b(k[ıi]?l[ıi]?p|kl[ıi]b[ıi])\s*al", re.I)
+KEYWORD_BEFORE = 40.0  # seconds of the moment before the keyword
+
+
+def keyword_candidates(lines: list[Line]) -> list[Candidate]:
+    """Clips that end where she said "klip al", starting ~40 s earlier."""
+    out: list[Candidate] = []
+    for ln in lines:
+        m = KEYWORD.search(ln.text)
+        if not m:
+            continue
+        # Approximate the keyword's time inside the line by its character position.
+        frac = m.start() / max(1, len(ln.text))
+        t = ln.start + (ln.end - ln.start) * frac
+        if out and t - out[-1].end < 15:
+            continue  # said twice in a row: one clip
+        out.append(Candidate(max(0.0, t - KEYWORD_BEFORE), t + 1.5, 10,
+                             "Yayında \"klip al\" dendi.", ln.text.strip(), verified=True, kind="klipal"))
+    print(f"   keyword \"klip al\": {len(out)}")
+    return out
+
+
 def laughter_candidates(laugh: list[float], shout: list[float], top: int = 20) -> list[Candidate]:
     """Fallback without any AI: clip the context leading up to each laughter burst."""
     bursts, cur = [], None
@@ -641,7 +664,11 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
             if checked and checked.score >= min_score - 1:
                 checked.quote, checked.kind = c.quote, "oyun"
                 keep_plays.append(checked)
-        final = keep_plays + funny[:cap - len(keep_plays)]
+        # "klip al" clips are always kept, on top of the cap; AI clips overlapping them are dropped.
+        marked = keyword_candidates(lines)
+        rest = [c for c in keep_plays + funny[:cap - len(keep_plays)]
+                if all(overlap(c, k) < 0.3 for k in marked)]
+        final = marked + rest
         final = [clamp(c, duration) for c in sorted(final, key=lambda c: c.start)]
         for i, c in enumerate(final, 1):
             print(f"Rendering clip {i}/{len(final)} at {fmt_ts(c.start)}")

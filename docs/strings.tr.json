@@ -40,6 +40,7 @@
   "tokenDescription": "clip-hunter sitesindeki yenile düğmesi",
   "tokenRejected": "Anahtar kabul edilmedi. Repo erişimini ve Actions: Read and write iznini kontrol edip tekrar dene.",
   "kindPlay": "İyi oyun",
+  "kindKeyword": "Klip al",
   "edit": "Düzenle",
   "openEditor": "Editör"
 }

@@ -200,6 +200,7 @@ function clipCard(clip, url, tag) {
     el("div", { class: "info" }, [
       el("div", { class: "row" }, [
         clip.kind === "oyun" ? el("span", { class: "chip play", text: S.kindPlay }) : null,
+        clip.kind === "klipal" ? el("span", { class: "chip keyword", text: S.kindKeyword }) : null,
         el("span", { class: "ts", text: `${S.atStream} ${clip.start_ts}` }),
         el("span", { text: fmt(S.seconds, { n: clip.seconds }) }),
         el("span", { text: fmt(S.score, { n: clip.score }) }),
