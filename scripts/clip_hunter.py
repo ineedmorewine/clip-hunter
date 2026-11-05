@@ -306,8 +306,9 @@ def keyword_candidates(lines: list[Line]) -> list[Candidate]:
         # Approximate the keyword's time inside the line by its character position.
         frac = m.start() / max(1, len(ln.text))
         t = ln.start + (ln.end - ln.start) * frac
-        if out and t - out[-1].end < 15:
-            continue  # said twice in a row: one clip
+        if out and t - out[-1].end < KEYWORD_BEFORE:
+            out[-1].end = t + 1.5  # said again within the same moment: extend one clip
+            continue
         out.append(Candidate(max(0.0, t - KEYWORD_BEFORE), t + 1.5, 10,
                              "Yayında \"klip al\" dendi.", ln.text.strip(), verified=True, kind="klipal"))
     print(f"   keyword \"klip al\": {len(out)}")
@@ -646,7 +647,7 @@ def process(source: str, link: str, title: str, out_dir: Path, cache_dir: Path,
     rows = []
     if complete:
         # Clip count follows stream length (~10 per hour), never a fixed number.
-        cap = max(max_clips, round(duration / 3600 * 10))
+        cap = max(6, round(duration / 3600 * 9))
         plays = sorted([c for c in final if c.kind == "oyun"], key=lambda c: c.score, reverse=True)
         funny = sorted([c for c in final if c.kind != "oyun"], key=lambda c: c.score, reverse=True)
         high_segments = list_segments(high.url)
